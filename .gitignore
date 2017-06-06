@@ -30,3 +30,8 @@
 *.exe
 *.out
 *.app
+
+# Other files
+*~
+.valgrind
+.depend.mk
