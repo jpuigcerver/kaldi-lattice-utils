@@ -3,4 +3,4 @@ ifndef KALDI_ROOT
 endif
 
 include $(KALDI_ROOT)/src/kaldi.mk
-EXTRA_CXXFLAGS += -Wno-sign-compare -Wno-unused-variable -I$(KALDI_ROOT)/src
+EXTRA_CXXFLAGS += -Wno-sign-compare -Wno-unused-variable -I$(KALDI_ROOT)/src -I.

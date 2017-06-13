@@ -1,4 +1,4 @@
-SUBDIRS = lat latbin
+SUBDIRS = lat latbin kwsbin2
 
 .PHONY: all install clean distclean $(SUBDIRS)
 

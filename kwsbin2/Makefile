@@ -2,11 +2,7 @@ all:
 
 include ../kaldi.mk
 
-BINFILES = \
-	lattice-info \
-	lattice-to-transcript-length-post \
-	lattice-to-word-frame-post \
-	lattice-to-word-position-post
+BINFILES = lattice-index
 
 OBJFILES =
 

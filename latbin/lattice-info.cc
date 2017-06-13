@@ -1,6 +1,6 @@
 // latbin/lattice-info.cc
 
-// Copyright 2017 Joan Puigcerver (joapuipe@upv.es)
+// Copyright (c) 2017 Joan Puigcerver <joapuipe@upv.es>
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
