@@ -61,62 +61,6 @@ void CreateQueryFst(const std::vector<typename Arc::Label>& alphabet,
   fst->SetProperties(kFstProperties, properties);
 }
 
-template <typename Arc>
-int32 CompactLatticeToSegmentFst(const kaldi::CompactLattice& clat,
-                                 MutableFst<Arc>* fst,
-                                 std::vector<tuple<int32, int32>>* label2segm) {
-  typedef typename Arc::Label Label;
-  typedef typename Arc::StateId StateId;
-  typedef typename Arc::Weight Weight;
-  using kaldi::CompactLattice;
-  using kaldi::CompactLatticeWeight;
-  using kaldi::LatticeWeight;
-  // Assumption: The lattice must be aligned!
-  // Compute the times of each state.
-  std::vector<int32> times;
-  const int32 total_frames = kaldi::CompactLatticeStateTimes(clat, &times);
-
-  // Initialize fst with as many states as the lattice.
-  fst->DeleteStates();
-  for (size_t n = 0; n < clat.NumStates(); ++n) {
-    fst->AddState();
-  }
-
-  // TODO(jpuigcerver): Switch to unordered_map ?
-  std::map<std::tuple<int32, int32>, Label> segm2label;
-  for (StateIterator<CompactLattice> siter(clat); !siter.Done(); siter.Next()) {
-    const StateId u = siter.Value();
-    for (ArcIterator<CompactLattice> aiter(clat, u); !aiter.Done();
-         aiter.Next()) {
-      const auto& arc = aiter.Value();
-      const StateId v = arc.nextstate;
-      const Weight w = Weight(arc.weight.Weight().Value1() +
-                              arc.weight.Weight().Value2());
-      const auto segment = std::make_tuple(times[u], times[v]);
-      const Label ilabel =
-          segm2label.emplace(segment, segm2label.size() + 1).first->second;
-      const Label olabel = arc.olabel;
-      fst->AddArc(u, Arc(ilabel, olabel, w, v));
-    }
-
-    if (clat.Final(u) != CompactLatticeWeight::Zero()) {
-      const LatticeWeight& cw = clat.Final(u).Weight();
-      const Weight w = Weight(cw.Value1() + cw.Value2());
-      fst->SetFinal(u, w);
-    }
-  }
-
-  // Reverse the map into a vector.
-  // segm2label table starts from 1, thus the +1 here.
-  label2segm->resize(segm2label.size() + 1);
-  for (const auto& segm_label : segm2label) {
-    (*label2segm)[segm_label.second] = segm_label.first;
-  }
-
-  return total_frames;
-}
-
-
 }  // namespace fst
 
 int main(int argc, char *argv[]) {
@@ -124,7 +68,19 @@ int main(int argc, char *argv[]) {
     using namespace kaldi;
     using namespace fst;
 
-    const char* usage = "";
+    const char* usage =
+        "Create an inverted index of the given lattices, where the score of "
+        "each word is the probability that the word is in the transcription "
+        "of the signal. I.e. P(R = 1 | x, v), where x is the image and v is "
+        "the word.\n"
+        "\n"
+        "For additional details, check the paper \"Probabilistic "
+        "interpretation and improvements to the HMM-filler for handwritten "
+        "keyword spotting\", by J. Puigcerver et al.\n"
+        "\n"
+        "Usage: lattice-index [options] <lattice-rspecifier> "
+        "<index-wspecifier>\n"
+        " e.g.: lattice-index --acoustic-scale=0.1 ark:1.lats ark:1.index\n";
 
     ParseOptions po(usage);
     BaseFloat beam = std::numeric_limits<BaseFloat>::infinity();
