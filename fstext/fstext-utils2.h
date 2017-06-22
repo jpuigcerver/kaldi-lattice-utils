@@ -140,14 +140,13 @@ void AddSequenceLengthDismabiguationSymbol(
   // Get the maximum length amongst all sequences in the FST.
   const size_t max_length = *std::max_element(state_input_length->begin(),
                                               state_input_length->end());
-
   // New vector of states. State k represents that k symbols are missing so
   // that the sequences entering this state have exactly max_length symbols.
   std::vector<StateId> aux_states(max_length + 1);
   for (size_t k = 0; k <= max_length; ++k) {
     aux_states[k] = fst->AddState();
   }
-  fst->SetFinal(aux_states[0], Weight::One());
+  fst->SetFinal(aux_states[max_length], Weight::One());
 
   // We just added new states, so we need to resize and update the
   // state_input_length vector, with the input length of each of them.
@@ -156,10 +155,10 @@ void AddSequenceLengthDismabiguationSymbol(
   // equal to 1.
   state_input_length->reserve(state_input_length->size() + max_length + 1);
   for (size_t k = 0; k <= max_length; ++k) {
-    state_input_length->push_back(max_length - k);
+    state_input_length->push_back(k);
     if (k < max_length) {
-      const Arc new_arc(dis_label, dis_label, Weight::One(), aux_states[k]);
-      fst->AddArc(aux_states[k + 1], new_arc);
+      const Arc new_arc(dis_label, dis_label, Weight::One(), aux_states[k + 1]);
+      fst->AddArc(aux_states[k], new_arc);
     }
   }
 
@@ -167,16 +166,12 @@ void AddSequenceLengthDismabiguationSymbol(
   for (StateIterator< Fst<Arc> > siter(*fst); !siter.Done(); siter.Next()) {
     const StateId u = siter.Value();
     if (u >= aux_states[0]) continue;  // Skip auxiliar states.
-    const size_t diff_length = max_length - state_input_length[u];
     const Weight final_w = fst->Final(u);
     if (final_w != Weight::Zero()) {
       fst->SetFinal(u, Weight::Zero());
-      fst->AddArc(u, Arc(0, 0, final_w, aux_states[diff_length]));
+      fst->AddArc(u, Arc(0, 0, final_w, aux_states[(*state_input_length)[u]]));
     }
   }
-
-  // We cannot guarantee at this point that the fst is accessible anymore.
-  fst->SetProperties(kAccessible, 0);
 }
 
 }  // namespace fst

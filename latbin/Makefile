@@ -3,6 +3,7 @@ all:
 include ../kaldi.mk
 
 BINFILES = \
+	lattice-best-path2 \
 	lattice-info \
 	lattice-restrict-length \
 	lattice-to-transcript-length-dist \
