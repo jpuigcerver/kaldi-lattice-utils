@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
         // Make sure that all sequences arriving to each state have the same
         // length.
         max_len = DisambiguateStateInputSequenceLength(
-            clat_tmp, &clat, false, &state_input_length);
+            clat_tmp, &clat, &state_input_length, false);
       }
       // Compute forward and backward likelihoods of each state in the
       // (modified) lattice.

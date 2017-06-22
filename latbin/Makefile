@@ -4,7 +4,8 @@ include ../kaldi.mk
 
 BINFILES = \
 	lattice-info \
-	lattice-to-transcript-length-post \
+	lattice-restrict-length \
+	lattice-to-transcript-length-dist \
 	lattice-to-word-frame-post \
 	lattice-to-word-position-post
 

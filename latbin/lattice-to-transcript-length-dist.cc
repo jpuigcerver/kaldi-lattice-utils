@@ -1,4 +1,4 @@
-// latbin/lattice-to-transcript-length-post.cc
+// latbin/lattice-to-transcript-length-dist.cc
 
 // Copyright (c) 2017 Joan Puigcerver <joapuipe@upv.es>
 
@@ -35,9 +35,9 @@ int main(int argc, char *argv[]) {
         "Compute the distribution of the length of the transcriptions in a "
         "lattice.\n"
         "\n"
-        "Usage: lattice-to-transcript-length-post [options] "
+        "Usage: lattice-to-transcript-length-dist [options] "
         "lattice-rspecifier1 posterior-wspecifier\n"
-        " e.g.: lattice-to-transcript-length-post ark:1.lats ark:1.posts\n";
+        " e.g.: lattice-to-transcript-length-dist ark:1.lats ark:1.posts\n";
 
     ParseOptions po(usage);
     BaseFloat acoustic_scale = 1.0;
@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
         // Make sure that all sequences arriving to each state have the same
         // length.
         DisambiguateStateInputSequenceLength(
-            clat_tmp, &clat, false, &state_input_length);
+            clat_tmp, &clat, &state_input_length, false);
       }
       // Compute forward and backward likelihoods of each state in the
       // (modified) lattice.

@@ -15,6 +15,9 @@
 // See the Apache 2 License for the specific language governing permissions and
 // limitations under the License.
 
+#ifndef KALDI_FSTEXT_FSTEXT_UTILS2_H_
+#define KALDI_FSTEXT_FSTEXT_UTILS2_H_
+
 #include <map>
 #include <queue>
 #include <vector>
@@ -40,12 +43,13 @@ namespace fst {
 // same.
 template <typename Arc>
 size_t DisambiguateStateInputSequenceLength(
-    const Fst<Arc>& ifst, MutableFst<Arc>* ofst, bool use_input = false,
-    std::vector<size_t>* state_input_length = nullptr) {
+    const Fst<Arc>& ifst, MutableFst<Arc>* ofst,
+    std::vector<size_t>* state_input_length = nullptr,
+    bool use_input = false) {
   typedef typename Arc::Label Label;
   typedef typename Arc::StateId StateId;
   typedef typename Arc::Weight Weight;
-
+  KALDI_ASSERT(ofst != nullptr);
   if (ifst.Properties(kAcyclic, true) != kAcyclic) {
     KALDI_ERR << "DisambiguateStateInputSequenceLength() only supports acyclic "
               << "transducers";
@@ -114,4 +118,67 @@ size_t DisambiguateStateInputSequenceLength(
   return max_len;
 }
 
+// O(V)
+template <typename Arc>
+void AddSequenceLengthDismabiguationSymbol(
+    MutableFst<Arc>* fst, std::vector<size_t>* state_input_length,
+    typename Arc::Label dis_label = kNoLabel) {
+  typedef typename Arc::Label Label;
+  typedef typename Arc::StateId StateId;
+  typedef typename Arc::Weight Weight;
+  KALDI_ASSERT(fst != nullptr);
+  KALDI_ASSERT(state_input_length != nullptr);
+  if (fst->NumStates() != state_input_length->size()) {
+    KALDI_ERR << "AddSequenceLengthDisambiguationSymbol() expects a vector "
+              << "with the length of the input sequences to each state of the "
+              << "FST. The length of the vector is different to the number of "
+              << "states (" << state_input_length->size() << " vs. "
+              << fst->NumStates() << ")";
+  }
+  if (fst->NumStates() == 0) return;
+
+  // Get the maximum length amongst all sequences in the FST.
+  const size_t max_length = *std::max_element(state_input_length->begin(),
+                                              state_input_length->end());
+
+  // New vector of states. State k represents that k symbols are missing so
+  // that the sequences entering this state have exactly max_length symbols.
+  std::vector<StateId> aux_states(max_length + 1);
+  for (size_t k = 0; k <= max_length; ++k) {
+    aux_states[k] = fst->AddState();
+  }
+  fst->SetFinal(aux_states[0], Weight::One());
+
+  // We just added new states, so we need to resize and update the
+  // state_input_length vector, with the input length of each of them.
+  // We also need to add edges for this states, so that an arc goes from
+  // state k to state k - 1 with the special disambiguation label and weight
+  // equal to 1.
+  state_input_length->reserve(state_input_length->size() + max_length + 1);
+  for (size_t k = 0; k <= max_length; ++k) {
+    state_input_length->push_back(max_length - k);
+    if (k < max_length) {
+      const Arc new_arc(dis_label, dis_label, Weight::One(), aux_states[k]);
+      fst->AddArc(aux_states[k + 1], new_arc);
+    }
+  }
+
+  // Replace final states with arcs to one of the aux_states.
+  for (StateIterator< Fst<Arc> > siter(*fst); !siter.Done(); siter.Next()) {
+    const StateId u = siter.Value();
+    if (u >= aux_states[0]) continue;  // Skip auxiliar states.
+    const size_t diff_length = max_length - state_input_length[u];
+    const Weight final_w = fst->Final(u);
+    if (final_w != Weight::Zero()) {
+      fst->SetFinal(u, Weight::Zero());
+      fst->AddArc(u, Arc(0, 0, final_w, aux_states[diff_length]));
+    }
+  }
+
+  // We cannot guarantee at this point that the fst is accessible anymore.
+  fst->SetProperties(kAccessible, 0);
+}
+
 }  // namespace fst
+
+#endif  // KALDI_FSTEXT_FSTEXT_UTILS2_H_
