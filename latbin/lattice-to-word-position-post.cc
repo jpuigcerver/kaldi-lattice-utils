@@ -34,9 +34,11 @@ int main(int argc, char *argv[]) {
         "Compute the posterior log-probability of each word for each given "
         "transcription position. That is, we compute log P(w_k = v | x), "
         "for all possible transcript position k, and words v.\n"
+        "You can optionally obtain the (best) frame segmentation of each "
+        "word and position.\n"
         "\n"
         "Usage: lattice-to-word-position-post [options] lat-rspecifier "
-        "post-wspecifier\n"
+        "post-wspecifier [segm-wspecifier]\n"
         " e.g.: lattice-to-word-position-post --acoustic-scale=0.1 ark:1.lats "
         "ark:1.word.pos.post\n"
         "See also: lattice-to-word-frame-post\n";
@@ -55,7 +57,7 @@ int main(int argc, char *argv[]) {
                 "label (typically, equivalent to word insertion penalty).");
     po.Read(argc, argv);
 
-    if (po.NumArgs() != 2) {
+    if (po.NumArgs() != 2 || po.NumArgs() != 3) {
       po.PrintUsage();
       exit(1);
     }
@@ -63,6 +65,7 @@ int main(int argc, char *argv[]) {
     const auto lattice_scale = LatticeScale(graph_scale, acoustic_scale);
     const std::string lattice_rspecifier = po.GetArg(1);
     PosteriorWriter posterior_writer(po.GetArg(2));
+    // TODO: Write (best) segmentation for each (word, position)
 
     for (SequentialCompactLatticeReader lattice_reader(lattice_rspecifier);
          !lattice_reader.Done(); lattice_reader.Next()) {

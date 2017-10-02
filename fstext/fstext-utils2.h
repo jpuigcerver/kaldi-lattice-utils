@@ -52,41 +52,73 @@ size_t DisambiguateStateInputSequenceLength(
   KALDI_ASSERT(ofst != nullptr);
   if (ifst.Properties(kAcyclic, true) != kAcyclic) {
     KALDI_ERR << "DisambiguateStateInputSequenceLength() only supports acyclic "
-              << "transducers";
+              << "transducers.";
   }
 
   ofst->DeleteStates();
   if (state_input_length != nullptr) state_input_length->clear();
   if (ifst.Start() < 0) return 0;
 
-
   // In the new fst, the states are represented by tuples:
-  // (state, input length) from the old fst.
+  // (input length, state) from the old fst.
   // This map is used to map these tuples to StateId in the output fst.
-  std::map<std::tuple<StateId, size_t>, StateId> state_map;
+  std::map<std::tuple<size_t, StateId>, StateId> state_map;
   // This queue is used to build the output fst.
-  std::queue<std::tuple<StateId, StateId, size_t>> Q;
+  std::queue<std::tuple<size_t, StateId>> Q;
 
-  // Initial state.
-  ofst->SetStart(ofst->AddState());
-  state_map[std::make_tuple(ifst.Start(), 0)] = 0;
-  Q.push(std::make_tuple(ifst.Start(), ofst->Start(), 0));
+  // We do a first pass through the fst in order to get all the states of the
+  // new fst. We need to do this first pass in order to know all the states
+  // before creating any arc, and thus, creating the new fst to be sorted in
+  // topological order.
+  state_map[std::make_tuple(0, ifst.Start())] = - 1;
+  Q.push(std::make_tuple(0, ifst.Start()));
   size_t max_len = 0;
-
   while (!Q.empty()) {
-    const StateId u  = std::get<0>(Q.front());  // StateId in the old fst
-    const StateId u2 = std::get<1>(Q.front());  // StateId in the new fst
-    const size_t len = std::get<2>(Q.front());  // Input length to new state
+    const size_t len = std::get<0>(Q.front());
+    const StateId u  = std::get<1>(Q.front());
     Q.pop();
-
     // Update the maximum length seen so far.
     if (max_len < len) max_len = len;
+    for (ArcIterator<Fst<Arc>> aiter(ifst, u); !aiter.Done(); aiter.Next()) {
+      auto arc = aiter.Value();
+      // If the arc is labeled with an epsilon, then the length of the
+      // sequence is no incresead. Otherwise, it is increased.
+      const size_t next_len =
+          ((use_input ? arc.ilabel : arc.olabel) == 0) ? (len) : (len + 1);
+      const auto t = std::make_tuple(next_len, arc.nextstate);
+      if (state_map.emplace(t, -1).second) {
+        Q.push(t);
+      }
+    }
+  }
 
-    // NOTE: Any state in the new fst is only added once the queue, and they
-    // are added in the FIFO in the same order as they are created, Thus, we
-    // can just push_back() the sequence length to the state_input_length
-    // vector.
-    if (state_input_length != nullptr) { state_input_length->push_back(len); }
+  // Create states in the new fst.
+  // Note: We set the NEGATIVE StateId of the new fst into state_map.
+  // We will change this to a positive value when the arcs from this new state
+  // have been processed.
+  for (auto it = state_map.begin(); it != state_map.end(); ++it) {
+    it->second = -ofst->AddState();
+  }
+  ofst->SetStart(0);
+
+  // Set the state_input_length vector, if given.
+  if (state_input_length != nullptr) {
+    state_input_length->reserve(state_map.size());
+    for (auto it = state_map.begin(); it != state_map.end(); ++it) {
+      state_input_length->push_back(std::get<0>(it->first));
+    }
+  }
+
+  // Traverse the fst again in order to add the arcs in the new fst.
+  Q.push(std::make_tuple(0, ifst.Start()));
+  while (!Q.empty()) {
+    const size_t len = std::get<0>(Q.front());  // Input length to new state
+    const StateId u  = std::get<1>(Q.front());  // StateId in the old fst
+    const StateId u2 = state_map[Q.front()];    // StateId in the new fst
+    Q.pop();
+
+    // Set final weight for the new state in the output fst.
+    ofst->SetFinal(u2, ifst.Final(u));
 
     // Traverse edges from state u
     for (ArcIterator< Fst<Arc> > aiter(ifst, u); !aiter.Done(); aiter.Next()) {
@@ -95,24 +127,23 @@ size_t DisambiguateStateInputSequenceLength(
       // is no incresead. Otherwise, it is increased.
       const size_t next_len =
           ((use_input ? arc.ilabel : arc.olabel) == 0) ? (len) : (len + 1);
-      const auto state_tuple = std::make_tuple(arc.nextstate, next_len);
-      const auto state_it = state_map.find(state_tuple);
-      if (state_it == state_map.end()) {
-        // If the tuple was never seen before, create a new state in the output
-        // fst and add it to the map.
-        const StateId nextstate2 = ofst->AddState();
-        Q.push(std::make_tuple(arc.nextstate, nextstate2, next_len));
-        state_map[state_tuple] = arc.nextstate = nextstate2;
-      } else {
-        // Otherwise, just use the previously assigned StateId.
-        arc.nextstate = state_it->second;
+      const auto state_tuple = std::make_tuple(next_len, arc.nextstate);
+      auto state_it = state_map.find(state_tuple);
+      if (state_it->second < 0 ) {
+        state_it->second = -state_it->second;
+        Q.push(state_tuple);
       }
+      arc.nextstate = state_it->second;
       // Add arc to the output fst
       ofst->AddArc(u2, arc);
-    }
 
-    // Set final weight for the new state in the output fst.
-    ofst->SetFinal(u2, ifst.Final(u));
+      if (arc.nextstate <= u2) {
+        KALDI_ERR
+            << "Added arc (" << len << ", " << u << ") [" << u2 << "] -> ("
+            << std::get<0>(state_tuple) << ", " << std::get<1>(state_tuple)
+            << ") [" << arc.nextstate << "]";
+      }
+    }
   }
 
   return max_len;

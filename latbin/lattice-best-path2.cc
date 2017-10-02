@@ -31,13 +31,31 @@ int main(int argc, char *argv[]) {
     using namespace kaldi;
     using namespace fst;
 
-    const char* usage = "";
+    const char* usage =
+        "Generate especial 1-best path through lattices, which minimizes a "
+        "different loss-function other than the 0-1 error on the sequence.\n"
+        "\n"
+        "Traditional 1-best Viterbi decoding obtains:\n"
+        "  argmax_y p(x, y) = argmax_y p(y | x)\n"
+        "\n"
+        "This minimizes the so called 0-1 loss at the sequence-level:\n"
+        "  E_p(y|x) [ I(y != \\hat{y}) ]\n"
+        "\n"
+        "Instead, this decoding minimizes a different loss function which "
+        "counts the errors on each position of the sequence, regardless of "
+        "insertions and deletions:\n"
+        "  E_p(y|x) [ \\sum_{k=1}^L I(y_k != \\hat{y}) + max(0, |y| - L) + "
+        "max(0, |\\hat{y}| - L) ]\n"
+        "\n"
+        "where L = min(|y|, |\\hat{y}|).\n"
+        "\n"
+        "This loss is an upper bound on the expected Levenshtein distance, "
+        "given p(y|x).\n";
 
     ParseOptions po(usage);
     BaseFloat acoustic_scale = 1.0;
     BaseFloat graph_scale = 1.0;
     BaseFloat insertion_penalty = 0.0;
-    bool determinize = false;
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
     po.Register("graph-scale", &graph_scale,
@@ -45,8 +63,6 @@ int main(int argc, char *argv[]) {
     po.Register("insertion-penalty", &insertion_penalty,
                 "Add this penalty to the lattice arcs with non-epsilon output "
                 "label (typically, equivalent to word insertion penalty).");
-    po.Register("determinize", &determinize,
-                "");
     po.Read(argc, argv);
 
     if (po.NumArgs() < 1 || po.NumArgs() > 2) {
@@ -84,13 +100,18 @@ int main(int argc, char *argv[]) {
         // frames in the lattice to compute the averages.
         std::vector<int32> state_times;
         lattice_frames = CompactLatticeStateTimes(clat_tmp, &state_times);
+        KALDI_ASSERT(clat_tmp.Properties(kTopSorted, true) == kTopSorted);
         // Make sure that all sequences arriving to each state have the same
-        // length.
+        // length. Note: Sort arcs in the lattice, to make sure that the
+        // result is in topological order.
+        ArcSort(&clat_tmp, OLabelCompare<CompactLatticeArc>());
         DisambiguateStateInputSequenceLength(
             clat_tmp, &clat, &state_input_length, false);
+        KALDI_ASSERT(clat.Properties(kTopSorted, true) == kTopSorted);
         // Add disambiguation symbols at the end of the sequences so that
         // all transcriptions have the same length.
         AddSequenceLengthDismabiguationSymbol(&clat, &state_input_length);
+        KALDI_ASSERT(clat.Properties(kTopSorted, true) == kTopSorted);
       }
       // Compute forward and backward LIKELIHOOD (- cost) of each state.
       std::vector<double> fw, bw;
