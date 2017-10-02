@@ -2,7 +2,7 @@ all:
 
 include ../kaldi.mk
 
-BINFILES = lattice-index
+BINFILES = lattice-word-index-utterance
 
 OBJFILES =
 
