@@ -25,8 +25,6 @@
 #include "lat/lattice-functions.h"
 #include "util/basic-tuple-vector-holder.h"
 
-#include "fst/script/print.h"
-
 namespace fst {
 
 template <typename Arc>
@@ -171,7 +169,7 @@ int main(int argc, char *argv[]) {
     utterance_writer.Close();
     return 0;
   } catch(const std::exception &e) {
-    std::cerr << e.what();
+    std::cerr << e.what() << std::endl;
     return -1;
   }
 }

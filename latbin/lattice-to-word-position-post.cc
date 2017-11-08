@@ -89,7 +89,6 @@ int main(int argc, char *argv[]) {
           AddWordInsPenToCompactLattice(insertion_penalty, &clat_tmp);
         // If needed, sort the compact lattice in topological order
         TopSortCompactLatticeIfNeeded(&clat_tmp);
-
         // Make sure that all sequences arriving to each state have the same
         // length.
         max_len = DisambiguateStateInputSequenceLength(
