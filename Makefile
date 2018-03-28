@@ -1,4 +1,4 @@
-SUBDIRS = latbin kwsbin2
+SUBDIRS = fstbin latbin kwsbin2
 
 .PHONY: all install clean distclean $(SUBDIRS)
 

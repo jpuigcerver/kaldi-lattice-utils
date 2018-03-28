@@ -24,27 +24,8 @@
 #include "util/common-utils.h"
 #include "fstext/fstext-lib.h"
 #include "lat/kaldi-lattice.h"
+#include "fstext/normalize_fst.h"
 
-
-template <typename Arc>
-void NormalizeFst(fst::MutableFst<Arc>* fst) {
-  typedef typename Arc::Weight Weight;
-
-  std::vector<Weight> costs;
-  fst::ShortestDistance(*fst, &costs, true);
-
-  if (costs[fst->Start()] == Weight::Zero()) {
-    fst->DeleteStates();
-    return;
-  }
-
-  for (fst::StateIterator< fst::Fst<Arc> > si(*fst); !si.Done(); si.Next()) {
-    const Weight final = fst->Final(si.Value());
-    if (final != Weight::Zero()) {
-      fst->SetFinal(si.Value(), fst::Divide(final, costs[fst->Start()]));
-    }
-  }
-}
 
 int main(int argc, char *argv[]) {
   try {
@@ -100,7 +81,7 @@ int main(int argc, char *argv[]) {
         NormalizeFst(&fst_reader.Value());
       }
 
-      // Allways write StdArc
+      // Always write StdArc
       fst_writer.Write(fst_key, fst_reader.Value());
     }
 

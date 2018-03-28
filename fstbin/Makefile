@@ -2,7 +2,7 @@ all:
 
 include ../kaldi.mk
 
-BINFILES = fst-normalize
+BINFILES = fst-normalize fst-compose-sum
 
 OBJFILES =
 
