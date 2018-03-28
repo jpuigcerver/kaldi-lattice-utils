@@ -70,7 +70,7 @@ size_t DisambiguateStateInputSequenceLength(
   // new fst. We need to do this first pass in order to know all the states
   // before creating any arc, and thus, creating the new fst to be sorted in
   // topological order.
-  state_map[std::make_tuple(0, ifst.Start())] = - 1;
+  state_map[std::make_tuple(0, ifst.Start())] = -1;
   Q.push(std::make_tuple(0, ifst.Start()));
   size_t max_len = 0;
   while (!Q.empty()) {
@@ -274,6 +274,9 @@ void DisambiguateStatesByInputLabelGroup(
       ofst->AddArc(s2, arc);
     }
   }
+
+  auto outprops = ifst.Properties(kFstProperties, false);
+  ofst->SetProperties(outprops, kFstProperties);
 }
 
 // Given a input fst such that the label of all input arcs to each state are
@@ -321,6 +324,177 @@ bool GetStatesInputLabelGroup(
   }
 
   return true;
+}
+
+template <typename Arc, typename GroupSet, typename Int>
+Int DisambiguateStatesByGroupTransitionsLength(
+    const Fst<Arc>& ifst, const std::vector<Int>& input_state_group,
+    const GroupSet& group_inc_length, MutableFst<Arc>* ofst,
+    std::vector<Int>* state_input_num_transition = nullptr,
+    std::vector<Int>* output_state_group = nullptr) {
+  typedef typename Arc::Label Label;
+  typedef typename Arc::StateId StateId;
+  typedef typename Arc::Weight Weight;
+  typedef std::tuple<Int, StateId> StateTuple;
+  if (ifst.Properties(kAcyclic, true) != kAcyclic) {
+    KALDI_ERR << "Only acyclic transducers are supported.";
+  }
+
+  ofst->DeleteStates();
+  if (state_input_num_transition) { state_input_num_transition->clear(); }
+  if (output_state_group) { output_state_group->clear(); }
+  if (ifst.Start() < 0) return 0;
+
+  std::map<StateTuple, StateId> state_map;
+  std::queue<StateTuple> Q;
+
+  state_map[std::make_tuple(0, ifst.Start())] = -1;
+  Q.push(std::make_tuple(0, ifst.Start()));
+  Int max_num_transitions = 0;
+
+  while (!Q.empty()) {
+    const auto n = std::get<0>(Q.front());
+    const auto u = std::get<1>(Q.front());
+    KALDI_ASSERT(u < input_state_group.size());
+    const auto ug = input_state_group[u];
+    Q.pop();
+
+    // Update the maximum length seen so far.
+    if (max_num_transitions < n) max_num_transitions = n;
+
+    for (ArcIterator<Fst<Arc>> ait(ifst, u); !ait.Done(); ait.Next()) {
+      const auto v = ait.Value().nextstate;
+      KALDI_ASSERT(v < input_state_group.size());
+      const auto vg = input_state_group[v];
+      const auto vn = (ug != vg && group_inc_length.count(vg)) ? (n + 1) : (n);
+      const auto t = std::make_tuple(vn, v);
+      if (state_map.emplace(t, -1).second) {
+        Q.push(t);
+      }
+    }
+  }
+
+  // Reserve size to store the number of group transitions in the paths that
+  // arrive to each of the output FST states.
+  if (state_input_num_transition) {
+    state_input_num_transition->reserve(state_map.size());
+  }
+
+  if (output_state_group) {
+    output_state_group->reserve(state_map.size());
+  }
+
+  // Create states in the new fst.
+  // Note: We set the NEGATIVE StateId of the new fst into state_map.
+  // We will change this to a positive value when the arcs from this new state
+  // have been processed.
+  for (auto it = state_map.begin(); it != state_map.end(); ++it) {
+    it->second = ofst->AddState();
+    if (state_input_num_transition) {
+      state_input_num_transition->push_back(std::get<0>(it->first));
+    }
+    if (output_state_group) {
+      output_state_group->push_back(input_state_group[std::get<1>(it->first)]);
+    }
+  }
+  ofst->SetStart(0);
+
+
+  // Add arcs in the output fst.
+  for (auto it = state_map.begin(); it != state_map.end(); ++it) {
+    const auto n  = std::get<0>(it->first);
+    const auto u1 = std::get<1>(it->first);
+    const auto u2 = it->second;              // Source ID in the output fst
+    KALDI_ASSERT(u1 < input_state_group.size());
+    const auto ug = input_state_group[u1];
+    // Set final weight for the node in the output fst.
+    ofst->SetFinal(u2, ifst.Final(u1));
+    // Add arcs to the node in the output fst.
+    for (ArcIterator<Fst<Arc>> ait(ifst, u1); !ait.Done(); ait.Next()) {
+      auto arc = ait.Value();
+      const auto v = arc.nextstate;
+      KALDI_ASSERT(v < input_state_group.size());
+      const auto vg = input_state_group[v];
+      const auto vn = (ug != vg && group_inc_length.count(vg)) ? (n + 1) : (n);
+      const auto t = std::make_tuple(vn, v);
+      arc.nextstate = state_map.find(t)->second;
+      ofst->AddArc(u2, arc);
+    }
+  }
+
+  auto outprops = ifst.Properties(kFstProperties, false);
+  ofst->SetProperties(outprops, kFstProperties);
+
+  return max_num_transitions;
+}
+
+template <typename Arc, typename Int, typename W>
+void GroupFactorFst(
+    MutableFst<Arc>* fst, const std::vector<W>& fw, const std::vector<W>& bw,
+    const std::vector<Int>& state_group) {
+  typedef MutableFst<Arc> Fst;
+  typedef typename Arc::StateId StateId;
+  typedef typename Arc::Weight Weight;
+  KALDI_ASSERT(fst != nullptr);
+  if (fst->Start() == kNoStateId) return;
+
+  // New super final state
+  const StateId sFinal = fst->AddState();
+
+  std::vector<Arc> new_arcs_from_init;
+  for (StateIterator<Fst> sit(*fst); !sit.Done(); sit.Next()) {
+    const StateId u = sit.Value();
+    if (u == sFinal || u == fst->Start()) continue;
+    KALDI_ASSERT(u < state_group.size());
+    const auto gu = state_group[u];
+    std::vector<Arc> new_arcs_from_u;  // New arcs from state u
+
+    // Add arc to the new (unique) final state, and make u not final
+    if (fst->Final(u) != Weight::Zero()) {
+      new_arcs_from_u.push_back(Arc(0, 0, fst->Final(u), sFinal));
+      fst->SetFinal(u, Weight::Zero());
+    }
+
+    // Traverse current arcs from state u. When reaching a state v part of a
+    // different group than u:
+    //   - Remove current arc from the fst.
+    //   - Add arc from the current state (u) to the final state, with cost =
+    //     arc.weight * backwardw[v]. Since the state u is the final state of a
+    //     group.
+    //   - Add arc from the initial state to v, with cost =
+    //     arc.weight * forward[u]. Since the state v is the start of a group.
+    for (ArcIterator<Fst> ait(*fst, u); !ait.Done(); ait.Next()) {
+      const Arc& arc = ait.Value();
+      const StateId v = arc.nextstate;
+      KALDI_ASSERT(v < state_group.size());
+      const auto gv = state_group[v];
+      if (gu != gv) {
+        new_arcs_from_u.push_back(
+            Arc(0, 0, fst::Times(arc.weight, bw[v]), sFinal));
+        fst->AddArc(
+            fst->Start(),
+            Arc(arc.ilabel, arc.olabel, fst::Times(arc.weight, fw[u]), v));
+      } else {
+        new_arcs_from_u.push_back(arc);
+      }
+    }
+
+    // Delete all original arcs from u, and all the arcs
+    fst->DeleteArcs(u);
+    for (const Arc& arc : new_arcs_from_u) {
+      fst->AddArc(u, arc);
+    }
+  }
+
+  // Final cost = -total_cost, so that paths are normalized in -log [0, 1]
+  fst->SetFinal(sFinal, Weight::One());
+  // Remove epsilon symbols O(V^2 + V * E)
+  RmEpsilon(fst);
+  // Remove unnecessary states/arcs
+  Connect(fst);
+  // Push weights to the toward the initial state. This speeds up n-best list
+  // retrieval.
+  Push<Arc>(fst, fst::REWEIGHT_TO_INITIAL, fst::kPushWeights);
 }
 
 }  // namespace fst

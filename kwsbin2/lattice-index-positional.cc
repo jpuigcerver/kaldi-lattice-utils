@@ -26,150 +26,6 @@
 #include "util/basic-tuple-vector-holder.h"
 #include "util/text-utils.h"
 
-namespace fst {
-
-template <typename Arc>
-size_t DisambiguateStateInputSequenceLengthFromCharacters(
-    const Fst<Arc>& ifst,
-    const std::vector<std::vector<typename Arc::Label>>& separator_groups,
-    const std::vector<bool>& separator_group_inc_length,
-    MutableFst<Arc>* ofst,
-    std::vector<size_t>* state_input_length = nullptr,
-    bool use_input = false) {
-  typedef typename Arc::Label Label;
-  typedef typename Arc::StateId StateId;
-  typedef typename Arc::Weight Weight;
-  KALDI_ASSERT(ofst != nullptr);
-  KALDI_ASSERT(separator_groups.size() == separator_group_inc_length.size());
-  if (ifst.Properties(kAcyclic, true) != kAcyclic) {
-    KALDI_ERR << "Only acyclic transducers are supported.";
-  }
-  // Create map of separators.
-  std::unordered_map<Label, size_t> separators;
-  separators[0] = 0;
-  for (size_t i = 0; i < separator_groups.size(); ++i) {
-    for (const Label& a : separator_groups[i]) {
-      if (!separators.emplace(a, i + 1).second) {
-        KALDI_ERR << "Label " << a << " was assigned to two separator groups.";
-      }
-    }
-  }
-  if (separators.size() == 0) {
-    KALDI_ERR << "At least one separator label is required.";
-  }
-
-  // Useful lambda function to obtain the group of a given label.
-  auto get_label_group = [&](const Label& lbl) -> size_t {
-    auto it = separators.find(lbl);
-    return it != separators.end() ? it->second : separator_groups.size() + 1;
-  };
-  auto does_group_inc_length = [&](const size_t& group) -> bool {
-    if (group == 0) return false;
-    if (group > separator_group_inc_length.size()) return true;
-    return separator_group_inc_length[group - 1];
-  };
-
-  ofst->DeleteStates();
-  if (state_input_length != nullptr) state_input_length->clear();
-  if (ifst.Start() < 0) return 0;
-
-  // In the new fst, the states are represented by tuples:
-  // (input length, state, group) from the old fst.
-  // This map is used to map these tuples to StateId in the output fst.
-  std::map<std::tuple<size_t, StateId, size_t>, StateId> state_map;
-  // This queue is used to build the output fst.
-  std::queue<std::tuple<size_t, StateId, size_t>> Q;
-
-  // We do a first pass through the fst in order to get all the states of the
-  // new fst. We need to do this first pass in order to know all the states
-  // before creating any arc, and thus, creating the new fst to be sorted in
-  // topological order.
-  state_map[std::make_tuple(0, ifst.Start(), 0)] = -1;
-  Q.push(std::make_tuple(0, ifst.Start(), 0));
-  size_t max_len = 0;
-  while (!Q.empty()) {
-    const size_t len = std::get<0>(Q.front());
-    const StateId u  = std::get<1>(Q.front());
-    const size_t pg  = std::get<2>(Q.front());
-    Q.pop();
-    // Update the maximum length seen so far.
-    if (max_len < len) max_len = len;
-    for (ArcIterator<Fst<Arc>> aiter(ifst, u); !aiter.Done(); aiter.Next()) {
-      const auto arc = aiter.Value();
-      const auto lbl = use_input ? arc.ilabel : arc.olabel;
-      const auto g = get_label_group(lbl);
-      // Only when the label group should increase the length and we have
-      // changed the group from the previous node, we increase the length.
-      // Otherwise, keep the previous length.
-      const size_t next_len =
-          (does_group_inc_length(g) && g != pg) ? (len + 1) : (len);
-      // Create a tuple representing a new state. The group of the new state
-      // is the group of label, if it is non-epsilon. If the label is epsilon,
-      // it propagates the label from the previous state.
-      const auto t = std::make_tuple(next_len, arc.nextstate, lbl ? g : pg);
-      if (state_map.emplace(t, -1).second) {
-        Q.push(t);
-      }
-    }
-  }
-
-  // Create states in the new fst.
-  // Note: We set the NEGATIVE StateId of the new fst into state_map.
-  // We will change this to a positive value when the arcs from this new state
-  // have been processed.
-  for (auto it = state_map.begin(); it != state_map.end(); ++it) {
-    it->second = -ofst->AddState();
-  }
-  ofst->SetStart(0);
-
-  // Set the state_input_length vector, if given.
-  if (state_input_length != nullptr) {
-    state_input_length->reserve(state_map.size());
-    for (auto it = state_map.begin(); it != state_map.end(); ++it) {
-      state_input_length->push_back(std::get<0>(it->first));
-    }
-  }
-
-  // Traverse the fst again in order to add the arcs in the new fst.
-  Q.push(std::make_tuple(0, 0, ifst.Start()));
-  while (!Q.empty()) {
-    const size_t len = std::get<0>(Q.front());  // Input length to new state
-    const StateId u  = std::get<1>(Q.front());  // StateId in the old fst
-    const Label pg   = std::get<2>(Q.front());  // Group of the state
-    const StateId u2 = state_map[Q.front()];    // StateId in the new fst
-    Q.pop();
-
-    // Set final weight for the new state in the output fst.
-    ofst->SetFinal(u2, ifst.Final(u));
-
-    // Traverse edges from state u
-    for (ArcIterator< Fst<Arc> > aiter(ifst, u); !aiter.Done(); aiter.Next()) {
-      auto arc = aiter.Value();
-      const auto lbl = use_input ? arc.ilabel : arc.olabel;
-      const auto g = get_label_group(lbl);
-      const size_t next_len =
-          (does_group_inc_length(g) && g != pg) ? (len + 1) : (len);
-      const auto t = std::make_tuple(next_len, arc.nextstate, lbl ? g : pg);
-      auto state_it = state_map.find(t);  // Note: we are sure that this exists.
-      if (state_it->second < 0 ) {
-        state_it->second = -state_it->second;
-        Q.push(t);
-      }
-      // Add arc to the output fst
-      arc.nextstate = state_it->second;
-      ofst->AddArc(u2, arc);
-      if (arc.nextstate <= u2) {
-        KALDI_ERR
-            << "Added arc ("
-            << len << ", " << u << ", " << pg << ") [" << u2 << "] -> ("
-            << std::get<0>(t) << ", " << std::get<1>(t) << ", "
-            << std::get<2>(t) << ") [" << arc.nextstate << "]";
-      }
-    }
-  }
-
-  return max_len;
-}
 
 // Given a fst that represents sequences of characters in its paths, creates
 // a fst that accepts words (determined by sequences of characters in between
@@ -352,6 +208,11 @@ int main(int argc, char** argv) {
       // WORD length (even if the number of characters is different).
       CompactLattice clat_tmp;
       std::vector<size_t> state_input_length;
+
+
+      DisambiguateStatesByInputLabelGroup
+
+
       const auto max_len = DisambiguateStateInputSequenceLengthFromCharacters(
           clat, separator_groups, separator_groups_inc_length,
           &clat_tmp, &state_input_length, false);

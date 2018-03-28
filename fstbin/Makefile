@@ -2,8 +2,7 @@ all:
 
 include ../kaldi.mk
 
-BINFILES = lattice-positional-index-from-chars lattice-word-index-utterance \
-	   kws-fst
+BINFILES = fst-normalize
 
 OBJFILES =
 
