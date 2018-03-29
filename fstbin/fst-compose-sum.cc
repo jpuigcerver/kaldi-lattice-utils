@@ -215,7 +215,7 @@ int main(int argc, char *argv[]) {
     }
 
     const std::string fsts_rspecifier1 = po.GetArg(1);
-    const std::string fsts_rspecifier2 = po.GetArg(1);
+    const std::string fsts_rspecifier2 = po.GetArg(2);
 
     TaskSequencer<ComputeTotalCostComposeTask> sequencer(sequencer_config);
 
