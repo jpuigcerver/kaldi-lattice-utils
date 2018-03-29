@@ -1,8 +1,8 @@
-// latbin/lattice-info.cc
+// fstbin/fst-info.cc
 
 // Copyright 2009-2011  Microsoft Corporation
 //                2013  Johns Hopkins University (author: Daniel Povey)
-//                2017  Joan Puigcerver
+//                2018  Joan Puigcerver
 
 // See ../../COPYING for clarification regarding multiple authors
 //
@@ -21,7 +21,6 @@
 
 #include "base/kaldi-common.h"
 #include "util/common-utils.h"
-#include "lat/kaldi-lattice.h"
 #include "fstext/fst-info.h"
 
 int main(int argc, char *argv[]) {
@@ -34,30 +33,27 @@ int main(int argc, char *argv[]) {
     using fst::StdArc;
 
     const char *usage =
-        "Prints out a summary of the lattices in a set of archives or\n"
-        "the individual information about each of the lattices\n"
+        "Prints out a summary of the FSTs in a set of archives or\n"
+        "the individual information about each of FST\n"
         "(--summary=false), similar to what fstinfo does.\n"
-        "Usage: lattice-info [options] lattice-rspecifier1 [lattice-rspecifier2 ...]\n"
-        " e.g.: lattice-info --summary=false ark:1.lats ark:2.lats\n";
+        "Usage: fst-info [options] fst-rspecifier1 [fst-rspecifier2 ...]\n"
+        " e.g.: fst-info --summary=false ark:1.fsts ark:2.fsts\n";
 
     ParseOptions po(usage);
-    bool compact = true;
     bool summary = true;
     std::string include_rxfilename;
     std::string exclude_rxfilename;
 
-    po.Register("compact", &compact,
-                "If true, work with lattices in compact form.");
     po.Register("summary", &summary,
-                "If true, summarizes the information of all lattices.");
+                "If true, summarizes the information of all FSTs.");
     po.Register("include", &include_rxfilename,
                 "Text file, the first field of each "
                 "line being interpreted as the "
-                "utterance-id whose lattices will be included");
+                "utterance-id whose FST will be included");
     po.Register("exclude", &exclude_rxfilename,
                 "Text file, the first field of each "
                 "line being interpreted as an utterance-id "
-                "whose lattices will be excluded");
+                "whose FST will be excluded");
 
     po.Read(argc, argv);
 
@@ -70,23 +66,15 @@ int main(int argc, char *argv[]) {
       KALDI_ERR << "should not have both --exclude and --include option!";
     }
 
+    typedef kaldi::SequentialTableReader<fst::VectorFstHolder> SequentialVectorFstReader;
     fst::FstSummaryAcc summary_acc;
     for (int32 a = 1; a <= po.NumArgs(); ++a) {
-      const std::string lats_rspecifier = po.GetArg(a);
-      if (compact) {
-        if (summary) {
-          fst::UpdateFstSummary<SequentialCompactLatticeReader>(lats_rspecifier,
-                                                                &summary_acc);
-        } else {
-          fst::PrintFstInfo<SequentialCompactLatticeReader>(lats_rspecifier);
-        }
-      } else {
-        if (summary) {
-          fst::UpdateFstSummary<SequentialLatticeReader>(lats_rspecifier,
+      const std::string fsts_rspecifier = po.GetArg(a);
+      if (summary) {
+        fst::UpdateFstSummary<SequentialVectorFstReader>(fsts_rspecifier,
                                                          &summary_acc);
-        } else {
-          fst::PrintFstInfo<SequentialLatticeReader>(lats_rspecifier);
-        }
+      } else {
+        fst::PrintFstInfo<SequentialVectorFstReader>(fsts_rspecifier);
       }
     }
     if (summary) {
