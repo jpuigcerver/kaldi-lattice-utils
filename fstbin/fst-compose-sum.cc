@@ -33,6 +33,7 @@ void PrepareFst(
     fst::VectorFst<fst::StdArc> *inp,  // Input FST (note: can be modified)
     fst::VectorFst<fst::LogArc> *out,  // Output FST
     float beam,  // Remove arcs from paths with cost > beam * best_path_cost
+    float scale,
     bool normalize,  // If true, subtract total cost from the FST.
     bool project_input,
     bool ilabel_sort) {  // If true, sort arcs according to ilabels.
@@ -50,6 +51,12 @@ void PrepareFst(
 
   // Convert StdArc to LogArc
   fst::ArcMap(*inp, out, fst::WeightConvertMapper<fst::StdArc, fst::LogArc>());
+
+  // Scale weights
+  const fst::LogArc::Weight wscale(scale);
+  if (wscale != fst::LogArc::Weight::One()) {
+    fst::ArcMap(out, fst::TimesMapper<fst::LogArc>(wscale));
+  }
 
   // Subtract total cost from the FST.
   if (normalize) {
@@ -90,7 +97,7 @@ class ComputeTotalCostComposeTask {
       const std::string &key2, const fst::VectorFst<fst::LogArc> &fst2)
       : key1_(key1), key2_(key2), total_cost_(0.0),
       /* These will not be necessary. */
-        beam_(0.0), normalize_(false), use_inputs_(false) {
+        beam_(0.0), scale_(0.0), normalize_(false), use_inputs_(false) {
     fst1_.reset(fst1.Copy(true));
     fst2_.reset(fst2.Copy(true));
   }
@@ -99,9 +106,10 @@ class ComputeTotalCostComposeTask {
   ComputeTotalCostComposeTask(
       const std::string &key1, const fst::VectorFst<fst::StdArc> &fst1,
       const std::string &key2, const fst::VectorFst<fst::StdArc> &fst2,
-      float beam, bool normalize, bool use_inputs)
+      float beam, float scale, bool normalize, bool use_inputs)
       : key1_(key1), key2_(key2), total_cost_(0.0),
-        beam_(beam), normalize_(normalize), use_inputs_(use_inputs) {
+        beam_(beam), scale_(scale), normalize_(normalize),
+        use_inputs_(use_inputs) {
     sfst1_.reset(fst1.Copy(true));
     sfst2_.reset(fst2.Copy(true));
   }
@@ -110,9 +118,10 @@ class ComputeTotalCostComposeTask {
   ComputeTotalCostComposeTask(
       const std::string &key1, const fst::VectorFst<fst::StdArc> &fst1,
       const std::string &key2, const fst::VectorFst<fst::LogArc> &fst2,
-      float beam, bool normalize, bool use_inputs)
+      float beam, float scale, bool normalize, bool use_inputs)
       : key1_(key1), key2_(key2), total_cost_(0.0),
-        beam_(beam), normalize_(normalize), use_inputs_(use_inputs) {
+        beam_(beam), scale_(scale), normalize_(normalize),
+        use_inputs_(use_inputs) {
     sfst1_.reset(fst1.Copy(true));
     fst2_.reset(fst2.Copy(true));
   }
@@ -121,9 +130,10 @@ class ComputeTotalCostComposeTask {
   ComputeTotalCostComposeTask(
       const std::string &key1, const fst::VectorFst<fst::LogArc> &fst1,
       const std::string &key2, const fst::VectorFst<fst::StdArc> &fst2,
-      float beam, bool normalize, bool use_inputs)
+      float beam, float scale, bool normalize, bool use_inputs)
       : key1_(key1), key2_(key2), total_cost_(0.0),
-        beam_(beam), normalize_(normalize), use_inputs_(use_inputs) {
+        beam_(beam), scale_(scale), normalize_(normalize),
+        use_inputs_(use_inputs) {
     fst1_.reset(fst1.Copy(true));
     sfst2_.reset(fst2.Copy(true));
   }
@@ -145,7 +155,7 @@ class ComputeTotalCostComposeTask {
                bool ilabel_sort) {
     if (!ofst) {
       ofst.reset(new fst::VectorFst<fst::LogArc>());
-      PrepareFst(ifst.get(), ofst.get(), beam_, normalize_, use_inputs_,
+      PrepareFst(ifst.get(), ofst.get(), beam_, scale_, normalize_, use_inputs_,
                  ilabel_sort);
       ifst.release();
     }
@@ -156,6 +166,7 @@ class ComputeTotalCostComposeTask {
   std::unique_ptr<fst::VectorFst<fst::LogArc>> fst1_, fst2_;
   float total_cost_;
   float beam_;
+  float scale_;
   bool normalize_;
   bool use_inputs_;
 };
@@ -168,6 +179,7 @@ int main(int argc, char *argv[]) {
     using fst::LogArc;
 
     Timer timer;
+    float scale = LogArc::Weight::One().Value();
     float beam = std::numeric_limits<float>::infinity();
     bool use_inputs = false;
     bool normalize = true;
@@ -189,6 +201,9 @@ int main(int argc, char *argv[]) {
                 "If true, normalize costs in each FST before the composition");
     po.Register("beam", &beam,
                 "Prune the FSTs using this beam.");
+    po.Register("scale", &scale,
+                "Apply this scale factor before normalization. "
+                "Note: this is applied *after* pruning.");
 
     TaskSequencerConfig sequencer_config;
     sequencer_config.Register(&po);
@@ -211,7 +226,8 @@ int main(int argc, char *argv[]) {
 
       // Note: Prepare Fst1 here instead that in the task.
       VectorFst<LogArc> fst1;
-      PrepareFst(&fst_reader1.Value(), &fst1, beam, normalize, use_inputs,
+      PrepareFst(&fst_reader1.Value(), &fst1, beam, scale, normalize,
+                 use_inputs,
                  false /* Sort w.r.t. olabel for fst::Compose */);
       fst_reader1.FreeCurrent();
 
@@ -221,7 +237,7 @@ int main(int argc, char *argv[]) {
         const string &key2 = fst_reader2.Key();
         sequencer.Run(
             new ComputeTotalCostComposeTask(
-                key1, fst1, key2, fst_reader2.Value(), beam, normalize,
+                key1, fst1, key2, fst_reader2.Value(), beam, scale, normalize,
                 use_inputs));
         fst_reader2.FreeCurrent();
       }
