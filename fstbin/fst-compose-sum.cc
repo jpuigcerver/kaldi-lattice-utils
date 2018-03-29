@@ -71,11 +71,15 @@ float ComputeTotalCostCompose(
   // Compose FSTs.
   fst::VectorFst<fst::LogArc> comp_fst;
   fst::Compose(fst1, fst2, &comp_fst);
-  // Compute total backward cost of each state.
-  std::vector<fst::LogArc::Weight> costs;
-  fst::ShortestDistance(comp_fst, &costs, true);
-  // Return total sum (backward of initial state).
-  return costs[comp_fst.Start()].Value();
+  if (comp_fst.Start() != fst::kNoStateId) {
+    // Compute total backward cost of each state.
+    std::vector<fst::LogArc::Weight> costs;
+    fst::ShortestDistance(comp_fst, &costs, true);
+    // Return total sum (backward of initial state).
+    return costs[comp_fst.Start()].Value();
+  } else {
+    return fst::LogArc::Weight::Zero().Value();
+  }
 }
 
 class ComputeTotalCostComposeTask {
