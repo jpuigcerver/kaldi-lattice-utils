@@ -24,7 +24,8 @@
 #include "util/common-utils.h"
 #include "fstext/fstext-lib.h"
 #include "fstext/normalize_fst.h"
-
+#include "base/timer.h"
+#include "util/kaldi-thread.h"
 
 void PrepareFst(
     fst::VectorFst<fst::StdArc> *inp,  // Input FST (note: can be modified)
@@ -75,6 +76,84 @@ float ComputeTotalCostCompose(
   return costs[comp_fst.Start()].Value();
 }
 
+class ComputeTotalCostComposeTask {
+ public:
+  // Initialize from two Fst<LogArc>, already pruned and normalized.
+  ComputeTotalCostComposeTask(
+      const std::string &key1, const fst::VectorFst<fst::LogArc> &fst1,
+      const std::string &key2, const fst::VectorFst<fst::LogArc> &fst2)
+      : key1_(key1), key2_(key2), total_cost_(0.0),
+      /* These will not be necessary. */
+        beam_(0.0), normalize_(false), use_inputs_(false) {
+    fst1_.reset(fst1.Copy(true));
+    fst2_.reset(fst2.Copy(true));
+  }
+
+  // Initialize from two Fst<StdArc>, which has to be pruned and normalized.
+  ComputeTotalCostComposeTask(
+      const std::string &key1, const fst::VectorFst<fst::StdArc> &fst1,
+      const std::string &key2, const fst::VectorFst<fst::StdArc> &fst2,
+      float beam, bool normalize, bool use_inputs)
+      : key1_(key1), key2_(key2), total_cost_(0.0),
+        beam_(beam), normalize_(normalize), use_inputs_(use_inputs) {
+    sfst1_.reset(fst1.Copy(true));
+    sfst2_.reset(fst2.Copy(true));
+  }
+
+  // Only fst1 hast to be pruned and normalized.
+  ComputeTotalCostComposeTask(
+      const std::string &key1, const fst::VectorFst<fst::StdArc> &fst1,
+      const std::string &key2, const fst::VectorFst<fst::LogArc> &fst2,
+      float beam, bool normalize, bool use_inputs)
+      : key1_(key1), key2_(key2), total_cost_(0.0),
+        beam_(beam), normalize_(normalize), use_inputs_(use_inputs) {
+    sfst1_.reset(fst1.Copy(true));
+    fst2_.reset(fst2.Copy(true));
+  }
+
+  // Only fst2 hast to be pruned and normalized.
+  ComputeTotalCostComposeTask(
+      const std::string &key1, const fst::VectorFst<fst::LogArc> &fst1,
+      const std::string &key2, const fst::VectorFst<fst::StdArc> &fst2,
+      float beam, bool normalize, bool use_inputs)
+      : key1_(key1), key2_(key2), total_cost_(0.0),
+        beam_(beam), normalize_(normalize), use_inputs_(use_inputs) {
+    fst1_.reset(fst1.Copy(true));
+    sfst2_.reset(fst2.Copy(true));
+  }
+
+  ~ComputeTotalCostComposeTask() {
+    std::cout << key1_ << " " << key2_ << " " << std::scientific << total_cost_
+              << std::endl;
+  }
+
+  void operator()() {
+    Prepare(sfst1_, fst1_, false /* Sort w.r.t. olabel */);
+    Prepare(sfst2_, fst2_, true  /* Sort w.r.t. ilabel */);
+    total_cost_ = ComputeTotalCostCompose(*fst1_, *fst2_);
+  }
+
+ private:
+  void Prepare(std::unique_ptr<fst::VectorFst<fst::StdArc>> &ifst,
+               std::unique_ptr<fst::VectorFst<fst::LogArc>> &ofst,
+               bool ilabel_sort) {
+    if (!ofst) {
+      ofst.reset(new fst::VectorFst<fst::LogArc>());
+      PrepareFst(ifst.get(), ofst.get(), beam_, normalize_, use_inputs_,
+                 ilabel_sort);
+      ifst.release();
+    }
+  }
+
+  const std::string key1_, key2_;
+  std::unique_ptr<fst::VectorFst<fst::StdArc>> sfst1_, sfst2_;
+  std::unique_ptr<fst::VectorFst<fst::LogArc>> fst1_, fst2_;
+  float total_cost_;
+  float beam_;
+  bool normalize_;
+  bool use_inputs_;
+};
+
 int main(int argc, char *argv[]) {
   try {
     using namespace kaldi;
@@ -82,6 +161,7 @@ int main(int argc, char *argv[]) {
     using fst::StdArc;
     using fst::LogArc;
 
+    Timer timer;
     float beam = std::numeric_limits<float>::infinity();
     bool use_inputs = false;
     bool normalize = true;
@@ -104,6 +184,9 @@ int main(int argc, char *argv[]) {
     po.Register("beam", &beam,
                 "Prune the FSTs using this beam.");
 
+    TaskSequencerConfig sequencer_config;
+    sequencer_config.Register(&po);
+
     po.Read(argc, argv);
     if (po.NumArgs() != 2) {
       po.PrintUsage();
@@ -113,10 +196,14 @@ int main(int argc, char *argv[]) {
     const std::string fsts_rspecifier1 = po.GetArg(1);
     const std::string fsts_rspecifier2 = po.GetArg(1);
 
+    TaskSequencer<ComputeTotalCostComposeTask> sequencer(sequencer_config);
+
+    kaldi::int64 nfst1 = 0, nfst2 = 0;
     SequentialTableReader<fst::VectorFstHolder> fst_reader1(fsts_rspecifier1);
-    for (; !fst_reader1.Done(); fst_reader1.Next()) {
+    for (; !fst_reader1.Done(); fst_reader1.Next(), ++nfst1) {
       const string &key1 = fst_reader1.Key();
 
+      // Note: Prepare Fst1 here instead that in the task.
       VectorFst<LogArc> fst1;
       PrepareFst(&fst_reader1.Value(), &fst1, beam, normalize, use_inputs,
                  false /* Sort w.r.t. olabel for fst::Compose */);
@@ -124,19 +211,27 @@ int main(int argc, char *argv[]) {
 
       SequentialTableReader<fst::VectorFstHolder> fst_reader2(
           fsts_rspecifier2);
-      for (; !fst_reader2.Done(); fst_reader2.Next()) {
+      for (nfst2 = 0; !fst_reader2.Done(); fst_reader2.Next(), ++nfst2) {
         const string &key2 = fst_reader2.Key();
-
-        VectorFst<LogArc> fst2;
-        PrepareFst(&fst_reader2.Value(), &fst2, beam, normalize, use_inputs,
-                   true /* Sort w.r.t. ilabel for fst::Compose */);
+        sequencer.Run(
+            new ComputeTotalCostComposeTask(
+                key1, fst1, key2, fst_reader2.Value(), beam, normalize,
+                use_inputs));
         fst_reader2.FreeCurrent();
-
-        const float total_cost = ComputeTotalCostCompose(fst1, fst2);
-        std::cout << key1 << " " << key2 << " "
-                  << std::scientific << total_cost << std::endl;
       }
     }
+
+    // Wait for all tasks.
+    sequencer.Wait();
+
+    const kaldi::int64 npairs = nfst1 * nfst2;
+    const double elapsed = timer.Elapsed();
+
+    KALDI_LOG << "Processed " << nfst1 << " x " << nfst2 << " = " << npairs
+              << " pairs of FSTs in " << elapsed << "s using "
+              << sequencer_config.num_threads << " threads: "
+              << (sequencer_config.num_threads * elapsed) / npairs
+              << "s/pair on a single thread";
 
     return 0;
   } catch (const std::exception &e) {
