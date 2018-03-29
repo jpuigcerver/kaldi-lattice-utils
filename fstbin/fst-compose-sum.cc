@@ -20,6 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <iomanip>
+
 #include "base/kaldi-common.h"
 #include "util/common-utils.h"
 #include "fstext/fstext-lib.h"
@@ -123,8 +125,8 @@ class ComputeTotalCostComposeTask {
   }
 
   ~ComputeTotalCostComposeTask() {
-    std::cout << key1_ << " " << key2_ << " " << std::scientific << total_cost_
-              << std::endl;
+    std::cout << key1_ << " " << key2_ << " " << std::setprecision(10)
+              << std::scientific << total_cost_ << std::endl;
   }
 
   void operator()() {

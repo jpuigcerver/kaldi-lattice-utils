@@ -41,7 +41,7 @@ $ fst-compose-sum ark:egs/example.fst.txt ark:egs/example.fst.txt
 This produces the result:
 
 ```
-example example 1.198654e+00
+example example 1.1986536980e+00
 ```
 
 Notice that the composition of the normalized example FST with itself produces
