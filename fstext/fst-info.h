@@ -26,8 +26,8 @@
 
 namespace fst {
 
-template <typename FST>
-long double ComputeNumberOfPaths(FST* fst) {
+template<typename FST>
+long double ComputeNumberOfPaths(FST *fst) {
   typedef typename FST::Arc Arc;
   typedef typename Arc::Weight Weight;
   typedef typename FST::StateId StateId;
@@ -43,7 +43,7 @@ long double ComputeNumberOfPaths(FST* fst) {
       const StateId s = siter.Value();
       for (ArcIterator<FST> aiter(*fst, s); !aiter.Done();
            aiter.Next()) {
-        const Arc& arc = aiter.Value();
+        const Arc &arc = aiter.Value();
         num_paths[arc.nextstate] += num_paths[s];
       }
       if (fst->Final(s) != Weight::Zero()) {
@@ -139,75 +139,58 @@ struct FstSummaryAcc {
       sum_sqr_olm(0),
       num_paths(0),
       sum_sqr_paths(0),
-      num_inf_paths(0)
-  { }
-  friend std::ostream& operator<<(std::ostream& os,
-                                  const FstSummaryAcc& summary) {
-    const double avg_states = summary.num_fsts > 0 ?
-                              summary.num_states / summary.num_fsts : 0;
-    const double avg_arcs = summary.num_fsts > 0 ?
-                            summary.num_arcs / summary.num_fsts : 0;
-    const double avg_ioeps = summary.num_fsts > 0 ?
-                             summary.num_ioeps / summary.num_fsts : 0;
-    const double avg_ieps = summary.num_fsts > 0 ?
-                            summary.num_ieps / summary.num_fsts : 0;
-    const double avg_oeps = summary.num_fsts > 0 ?
-                            summary.num_oeps / summary.num_fsts : 0;
-    const double avg_acc = summary.num_fsts > 0 ?
-                           summary.num_acc / summary.num_fsts : 0;
-    const double avg_coacc = summary.num_fsts > 0 ?
-                             summary.num_coacc / summary.num_fsts : 0;
-    const double avg_cs = summary.num_fsts > 0 ?
-                          summary.num_cs / summary.num_fsts : 0;
-    const double avg_cc = summary.num_fsts > 0 ?
-                          summary.num_cc / summary.num_fsts : 0;
-    const double avg_scc = summary.num_fsts > 0 ?
-                           summary.num_scc / summary.num_fsts : 0;
-    const double avg_ilm = summary.num_fsts > 0 ?
-                           summary.num_ilm / summary.num_fsts : 0;
-    const double avg_olm = summary.num_fsts > 0 ?
-                           summary.num_olm / summary.num_fsts : 0;
-    const long double avg_paths = summary.num_fsts > 0 ?
-                                  summary.num_paths / summary.num_fsts : 0;
-    const double avg_expanded = summary.num_fsts > 0 ?
-                                100.0 * summary.num_expanded / (double)summary.num_fsts : 0;
-    const double avg_mutable = summary.num_fsts > 0 ?
-                               100.0 * summary.num_mutable / (double)summary.num_fsts : 0;
-    const double avg_error = summary.num_fsts > 0 ?
-                             100.0 * summary.num_error / (double)summary.num_fsts : 0;
-    const double avg_acceptor = summary.num_fsts > 0 ?
-                                100.0 * summary.num_acceptor / (double)summary.num_fsts : 0;
-    const double avg_idet = summary.num_fsts > 0 ?
-                            100.0 * summary.num_idet / (double)summary.num_fsts : 0;
-    const double avg_odet = summary.num_fsts > 0 ?
-                            100.0 * summary.num_odet / (double)summary.num_fsts : 0;
-    const double avg_isorted = summary.num_fsts > 0 ?
-                               100.0 * summary.num_isorted / (double)summary.num_fsts : 0;
-    const double avg_osorted = summary.num_fsts > 0 ?
-                               100.0 * summary.num_osorted / (double)summary.num_fsts : 0;
-    const double avg_weighted = summary.num_fsts > 0 ?
-                                100.0 * summary.num_weighted / (double)summary.num_fsts : 0;
-    const double avg_cyclic = summary.num_fsts > 0 ?
-                              100.0 * summary.num_cyclic / (double)summary.num_fsts : 0;
-    const double avg_icyclic = summary.num_fsts > 0 ?
-                               100.0 * summary.num_icyclic / (double)summary.num_fsts : 0;
-    const double avg_topsorted = summary.num_fsts > 0 ?
-                                 100.0 * summary.num_topsorted / (double)summary.num_fsts : 0;
+      num_inf_paths(0) {}
+  friend std::ostream &operator<<(std::ostream &os,
+                                  const FstSummaryAcc &summary) {
+    const double N = summary.num_fsts;
+    const double avg_states = N > 0 ? summary.num_states / N : 0;
+    const double avg_arcs = N > 0 ? summary.num_arcs / N : 0;
+    const double avg_ioeps = N > 0 ? summary.num_ioeps / N : 0;
+    const double avg_ieps = N > 0 ? summary.num_ieps / N : 0;
+    const double avg_oeps = N > 0 ? summary.num_oeps / N : 0;
+    const double avg_acc = N > 0 ? summary.num_acc / N : 0;
+    const double avg_coacc = N > 0 ? summary.num_coacc / N : 0;
+    const double avg_cs = N > 0 ? summary.num_cs / N : 0;
+    const double avg_cc = N > 0 ? summary.num_cc / N : 0;
+    const double avg_scc = N > 0 ? summary.num_scc / N : 0;
+    const double avg_ilm = N > 0 ? summary.num_ilm / N : 0;
+    const double avg_olm = N > 0 ? summary.num_olm / N : 0;
+    const long double avg_paths =
+        (N - num_inf_paths) > 0
+        ? summary.num_paths / (N - summary.num_inf_paths) : 0;
+    const double avg_expanded = N > 0 ? (100.0 * summary.num_expanded) / N : 0;
+    const double avg_mutable = N > 0 ? (100.0 * summary.num_mutable) / N : 0;
+    const double avg_error = N > 0 ? (100.0 * summary.num_error) / N : 0;
+    const double avg_acceptor = N > 0 ? (100.0 * summary.num_acceptor) / N : 0;
+    const double avg_idet = N > 0 ? (100.0 * summary.num_idet) / N : 0;
+    const double avg_odet = N > 0 ? (100.0 * summary.num_odet) / N : 0;
+    const double avg_isorted = N > 0 ? (100.0 * summary.num_isorted) / N : 0;
+    const double avg_osorted = N > 0 ? (100.0 * summary.num_osorted) / N : 0;
+    const double avg_weighted = N > 0 ? (100.0 * summary.num_weighted) / N : 0;
+    const double avg_cyclic = N > 0 ? (100.0 * summary.num_cyclic) / N : 0;
+    const double avg_icyclic = N > 0 ? (100.0 * summary.num_icyclic) / N : 0;
+    const double avg_topsorted = N > 0 ? (100.0 * summary.num_topsorted) / N : 0;
     os << std::left;
     os << std::setw(50) << "# FSTs " << summary.num_fsts << std::endl;
     os << std::setw(50) << "avg. of states" << avg_states << std::endl;
     os << std::setw(50) << "avg. of arcs" << avg_arcs << std::endl;
-    os << std::setw(50) << "avg. of input/output epsilons" << avg_ioeps << std::endl;
+    os << std::setw(50) << "avg. of input/output epsilons" << avg_ioeps
+       << std::endl;
     os << std::setw(50) << "avg. of input epsilons" << avg_ieps << std::endl;
     os << std::setw(50) << "avg. of output epsilons" << avg_oeps << std::endl;
     os << std::setw(50) << "avg. of accessible states" << avg_acc << std::endl;
-    os << std::setw(50) << "avg. of coaccessible states" << avg_coacc << std::endl;
+    os << std::setw(50) << "avg. of coaccessible states" << avg_coacc
+       << std::endl;
     os << std::setw(50) << "avg. of connected states" << avg_cs << std::endl;
-    os << std::setw(50) << "avg. of connected components" << avg_cc << std::endl;
-    os << std::setw(50) << "avg. of strongly conn components" << avg_scc << std::endl;
+    os << std::setw(50) << "avg. of connected components" << avg_cc
+       << std::endl;
+    os << std::setw(50) << "avg. of strongly conn components" << avg_scc
+       << std::endl;
     os << std::setw(50) << "avg. of paths" << avg_paths << std::endl;
-    os << std::setw(50) << "% input label multiplicity" << avg_ilm << std::endl;
-    os << std::setw(50) << "% output label multiplicity" << avg_olm << std::endl;
+    os << std::setw(50) << "avg. input label multiplicity" << avg_ilm
+       << std::endl;
+    os << std::setw(50) << "avg. output label multiplicity" << avg_olm
+       << std::endl;
     os << std::setw(50) << "% expanded" << avg_expanded << std::endl;
     os << std::setw(50) << "% mutable" << avg_mutable << std::endl;
     os << std::setw(50) << "% error" << avg_error << std::endl;
@@ -218,14 +201,15 @@ struct FstSummaryAcc {
     os << std::setw(50) << "% output label sorted" << avg_osorted << std::endl;
     os << std::setw(50) << "% weighted" << avg_weighted << std::endl;
     os << std::setw(50) << "% cyclic" << avg_cyclic << std::endl;
-    os << std::setw(50) << "% cyclic at initial state" << avg_icyclic << std::endl;
+    os << std::setw(50) << "% cyclic at initial state" << avg_icyclic
+       << std::endl;
     os << std::setw(50) << "% top sorted" << avg_topsorted << std::endl;
     return os;
   }
 };
 
-template <typename FstReader>
-void UpdateFstSummary(const std::string& rspecifier, FstSummaryAcc* acc) {
+template<typename FstReader>
+void UpdateFstSummary(const std::string &rspecifier, FstSummaryAcc *acc) {
   typedef typename FstReader::T FST;
   for (FstReader fst_reader(rspecifier); !fst_reader.Done();
        fst_reader.Next()) {
@@ -249,15 +233,20 @@ void UpdateFstSummary(const std::string& rspecifier, FstSummaryAcc* acc) {
     acc->sum_sqr_states += fst_info.NumStates() * fst_info.NumStates();
     acc->sum_sqr_arcs += fst_info.NumArcs() * fst_info.NumArcs();
     acc->sum_sqr_ioeps += fst_info.NumEpsilons() * fst_info.NumEpsilons();
-    acc->sum_sqr_ieps += fst_info.NumInputEpsilons() * fst_info.NumInputEpsilons();
-    acc->sum_sqr_oeps += fst_info.NumOutputEpsilons() * fst_info.NumOutputEpsilons();
+    acc->sum_sqr_ieps +=
+        fst_info.NumInputEpsilons() * fst_info.NumInputEpsilons();
+    acc->sum_sqr_oeps +=
+        fst_info.NumOutputEpsilons() * fst_info.NumOutputEpsilons();
     acc->sum_sqr_acc += fst_info.NumAccessible() * fst_info.NumAccessible();
-    acc->sum_sqr_coacc += fst_info.NumCoAccessible() * fst_info.NumCoAccessible();
+    acc->sum_sqr_coacc +=
+        fst_info.NumCoAccessible() * fst_info.NumCoAccessible();
     acc->sum_sqr_cs += fst_info.NumConnected() * fst_info.NumConnected();
     acc->sum_sqr_cc += fst_info.NumCc() * fst_info.NumCc();
     acc->sum_sqr_scc += fst_info.NumScc() * fst_info.NumScc();
-    acc->sum_sqr_ilm += fst_info.InputLabelMultiplicity() * fst_info.InputLabelMultiplicity();
-    acc->sum_sqr_olm += fst_info.OutputLabelMultiplicity() * fst_info.OutputLabelMultiplicity();
+    acc->sum_sqr_ilm +=
+        fst_info.InputLabelMultiplicity() * fst_info.InputLabelMultiplicity();
+    acc->sum_sqr_olm +=
+        fst_info.OutputLabelMultiplicity() * fst_info.OutputLabelMultiplicity();
 
     if (num_paths < std::numeric_limits<long double>::infinity()) {
       acc->num_paths += num_paths;
@@ -280,7 +269,7 @@ void UpdateFstSummary(const std::string& rspecifier, FstSummaryAcc* acc) {
     if (fst_info.Properties() & fst::kILabelSorted)
       acc->num_isorted++;
     if (fst_info.Properties() & fst::kOLabelSorted)
-      acc->num_isorted++;
+      acc->num_osorted++;
     if (fst_info.Properties() & fst::kWeighted)
       acc->num_weighted++;
     if (fst_info.Properties() & fst::kCyclic)
@@ -292,8 +281,8 @@ void UpdateFstSummary(const std::string& rspecifier, FstSummaryAcc* acc) {
   }
 }
 
-template <typename FstReader>
-void PrintFstInfo(const std::string& rspecifier) {
+template<typename FstReader>
+void PrintFstInfo(const std::string &rspecifier) {
   typedef typename FstReader::T FST;
   for (FstReader fst_reader(rspecifier); !fst_reader.Done();
        fst_reader.Next()) {
@@ -303,31 +292,46 @@ void PrintFstInfo(const std::string& rspecifier) {
     fst::FstInfo fst_info(f, true);
     const long double num_paths = ComputeNumberOfPaths<FST>(&f);
     std::cout << std::left << key << std::endl;
-    std::cout << std::setw(50) << "# of states" << fst_info.NumStates() << std::endl;
-    std::cout << std::setw(50) << "# of arcs" << fst_info.NumArcs() << std::endl;
-    std::cout << std::setw(50) << "initial state" << fst_info.Start() << std::endl;
-    std::cout << std::setw(50) << "# of input/output epsilons" << fst_info.NumEpsilons() << std::endl;
-    std::cout << std::setw(50) << "# of input epsilons" << fst_info.NumInputEpsilons() << std::endl;
-    std::cout << std::setw(50) << "# of output epsilons" << fst_info.NumOutputEpsilons() << std::endl;
-    std::cout << std::setw(50) << "# of accessible states" << fst_info.NumAccessible() << std::endl;
-    std::cout << std::setw(50) << "# of coaccessible states" << fst_info.NumCoAccessible() << std::endl;
-    std::cout << std::setw(50) << "# of connected states" << fst_info.NumConnected() << std::endl;
-    std::cout << std::setw(50) << "# of connected components" << fst_info.NumCc() << std::endl;
-    std::cout << std::setw(50) << "# of strongly conn components" << fst_info.NumScc() << std::endl;
+    std::cout << std::setw(50) << "# of states" << fst_info.NumStates()
+              << std::endl;
+    std::cout << std::setw(50) << "# of arcs" << fst_info.NumArcs()
+              << std::endl;
+    std::cout << std::setw(50) << "initial state" << fst_info.Start()
+              << std::endl;
+    std::cout << std::setw(50) << "# of input/output epsilons"
+              << fst_info.NumEpsilons() << std::endl;
+    std::cout << std::setw(50) << "# of input epsilons"
+              << fst_info.NumInputEpsilons() << std::endl;
+    std::cout << std::setw(50) << "# of output epsilons"
+              << fst_info.NumOutputEpsilons() << std::endl;
+    std::cout << std::setw(50) << "# of accessible states"
+              << fst_info.NumAccessible() << std::endl;
+    std::cout << std::setw(50) << "# of coaccessible states"
+              << fst_info.NumCoAccessible() << std::endl;
+    std::cout << std::setw(50) << "# of connected states"
+              << fst_info.NumConnected() << std::endl;
+    std::cout << std::setw(50) << "# of connected components"
+              << fst_info.NumCc() << std::endl;
+    std::cout << std::setw(50) << "# of strongly conn components"
+              << fst_info.NumScc() << std::endl;
     std::cout << std::setw(50) << "# of paths" << num_paths << std::endl;
-    std::cout << std::setw(50) << "input label multiplicity" << fst_info.InputLabelMultiplicity() << std::endl;
-    std::cout << std::setw(50) << "output label multiplicity" << fst_info.OutputLabelMultiplicity() << std::endl;
+    std::cout << std::setw(50) << "input label multiplicity"
+              << fst_info.InputLabelMultiplicity() << std::endl;
+    std::cout << std::setw(50) << "output label multiplicity"
+              << fst_info.OutputLabelMultiplicity() << std::endl;
     uint64 prop = 1;
     for (int i = 0; i < 64; ++i, prop <<= 1) {
       if (prop & fst::kBinaryProperties) {
         char value = 'n';
         if (fst_info.Properties() & prop) value = 'y';
-        std::cout << std::setw(50) << fst::PropertyNames[i] << value << std::endl;
+        std::cout << std::setw(50) << fst::PropertyNames[i] << value
+                  << std::endl;
       } else if (prop & fst::kPosTrinaryProperties) {
         char value = '?';
         if (fst_info.Properties() & prop) value = 'y';
         else if (fst_info.Properties() & prop << 1) value = 'n';
-        std::cout << std::setw(50) << fst::PropertyNames[i] << value << std::endl;
+        std::cout << std::setw(50) << fst::PropertyNames[i] << value
+                  << std::endl;
       }
     }
     std::cout << std::endl;
