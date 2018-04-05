@@ -156,7 +156,7 @@ struct FstSummaryAcc {
     const double avg_ilm = N > 0 ? summary.num_ilm / N : 0;
     const double avg_olm = N > 0 ? summary.num_olm / N : 0;
     const long double avg_paths =
-        (N - num_inf_paths) > 0
+        (N - summary.num_inf_paths) > 0
         ? summary.num_paths / (N - summary.num_inf_paths) : 0;
     const double avg_expanded = N > 0 ? (100.0 * summary.num_expanded) / N : 0;
     const double avg_mutable = N > 0 ? (100.0 * summary.num_mutable) / N : 0;
