@@ -37,26 +37,26 @@ void PrepareFst(
     bool normalize,  // If true, subtract total cost from the FST.
     bool project_input,
     bool ilabel_sort) {  // If true, sort arcs according to ilabels.
+  // Scale weights
+  const fst::StdArc::Weight wscale(scale);
+  if (wscale != fst::StdArc::Weight::One()) {
+    fst::ArcMap(inp, fst::TimesMapper<fst::StdArc>(wscale));
+  }
+
+  // Prune FST using the given beam.
+  if (beam >= 0.0 && beam < std::numeric_limits<float>::infinity()) {
+    fst::Prune(inp, fst::StdArc::Weight(beam));
+  }
+
+  // Project input/output labels.
   if (project_input) {
     fst::Project(inp, fst::PROJECT_INPUT);
   } else {
     fst::Project(inp, fst::PROJECT_OUTPUT);
   }
 
-  // If false, sort them according to olabels.
-  // Prune FST using the given beam
-  if (beam >= 0.0 && beam < std::numeric_limits<float>::infinity()) {
-    fst::Prune(inp, fst::StdArc::Weight(beam));
-  }
-
   // Convert StdArc to LogArc
   fst::ArcMap(*inp, out, fst::WeightConvertMapper<fst::StdArc, fst::LogArc>());
-
-  // Scale weights
-  const fst::LogArc::Weight wscale(scale);
-  if (wscale != fst::LogArc::Weight::One()) {
-    fst::ArcMap(out, fst::TimesMapper<fst::LogArc>(wscale));
-  }
 
   // Subtract total cost from the FST.
   if (normalize) {
@@ -202,8 +202,7 @@ int main(int argc, char *argv[]) {
     po.Register("beam", &beam,
                 "Prune the FSTs using this beam.");
     po.Register("scale", &scale,
-                "Apply this scale factor before normalization. "
-                "Note: this is applied *after* pruning.");
+                "Apply this scale factor before pruning and normalization.");
 
     TaskSequencerConfig sequencer_config;
     sequencer_config.Register(&po);
