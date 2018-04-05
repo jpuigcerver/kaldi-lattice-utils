@@ -5,6 +5,7 @@ include ../kaldi.mk
 BINFILES = \
 	lattice-best-path2 \
 	lattice-info \
+	lattice-remove-ctc-blank \
 	lattice-restrict-length \
 	lattice-to-transcript-length-dist \
 	lattice-to-word-frame-post \

@@ -1,0 +1,4 @@
+*.pdf
+output.txt
+*_alignments.txt
+*_transcripts.txt
