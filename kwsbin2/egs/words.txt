@@ -1,0 +1,9 @@
+<eps>   0
+a       1
+the     2
+dog 	3
+lizard  4
+is      5
+man's   6
+best    7
+friend  8

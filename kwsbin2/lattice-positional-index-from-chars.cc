@@ -50,17 +50,6 @@ size_t DisambiguateStatesByWordCount(
 }  // namespace kaldi
 
 
-template <typename Arc>
-size_t NumArcs(const fst::Fst<Arc>& ifst) {
-  using namespace fst;
-  typedef fst::Fst<Arc> Fst;
-  size_t num_arcs = 0;
-  for (StateIterator<Fst> sit(ifst); !sit.Done(); sit.Next()) {
-    num_arcs += ifst.NumArcs(sit.Value());
-  }
-  return num_arcs;
-}
-
 template <typename LabelMap, typename Container>
 void AssignGroupToLabels(
     const typename LabelMap::mapped_type& group,
@@ -145,6 +134,11 @@ void RemoveWhitespaceArcs(
 
 namespace kaldi {
 
+// Takes as input a CompactLattice where all paths arriving to each state have
+// the same number of words, a vector associating each state in the
+// CompactLattice with a timestep (frame), and a vector associating each state
+// in the CompactLattice with its word count.
+//
 template <typename Arc, typename Int1, typename Int2>
 void CompactLatticeToWordCountSegmFst(
     const CompactLattice& clat,
@@ -217,6 +211,28 @@ void CompactLatticeToWordCountSegmFst(
 }
 
 
+void ScaleAndPruneLattice(
+    CompactLattice* clat, BaseFloat acoustic_scale, BaseFloat graph_scale,
+    BaseFloat insertion_penalty, BaseFloat beam) {
+  // Acoustic scale
+  if (acoustic_scale != 1.0 || graph_scale != 1.0) {
+    ScaleLattice(fst::LatticeScale(graph_scale, acoustic_scale), clat);
+  }
+  // Word insertion penalty
+  if (insertion_penalty != 0.0) {
+    AddWordInsPenToCompactLattice(insertion_penalty, clat);
+  }
+  // Lattice pruning
+  if (beam != std::numeric_limits<BaseFloat>::infinity()) {
+    PruneLattice(beam, clat);
+  }
+  // If needed, sort the compact lattice in topological order
+  TopSortCompactLatticeIfNeeded(clat);
+  // Remove epsilon arcs from the compact lattice.
+  RmEpsilon(clat);
+}
+
+
 }  // namespace kaldi
 
 
@@ -244,7 +260,7 @@ int main(int argc, char** argv) {
     BaseFloat delta = fst::kDelta;
     int nbest = 100;
 
-     po.Register("delta", &delta, "Tolerance used in determinization. "
+    po.Register("delta", &delta, "Tolerance used in determinization. "
                 "The smaller the better.");
     po.Register("acoustic-scale", &acoustic_scale,
                  "Scaling factor for acoustic likelihoods in the lattices.");
@@ -270,10 +286,6 @@ int main(int argc, char** argv) {
     ParseSeparatorGroups(po.GetArg(1), po.GetArg(2), &wspace_labels,
                          &label_group, &groups_inc_word_count);
 
-    // Scaling scores
-    std::vector<std::vector<double> > scale(2, std::vector<double>{0.0, 0.0});
-    scale[0][0] = graph_scale;
-    scale[1][1] = acoustic_scale;
 
     const std::string lattice_rspecifier = po.GetArg(3);
     for (SequentialCompactLatticeReader lattice_reader(lattice_rspecifier);
@@ -281,19 +293,10 @@ int main(int argc, char** argv) {
       const std::string lattice_key = lattice_reader.Key();
       CompactLattice clat = lattice_reader.Value();
       lattice_reader.FreeCurrent();
-      // Acoustic scale
-      if (acoustic_scale != 1.0 || graph_scale != 1.0)
-        ScaleLattice(scale, &clat);
-      // Word insertion penalty
-      if (insertion_penalty != 0.0)
-        AddWordInsPenToCompactLattice(insertion_penalty, &clat);
-      // Lattice prunning
-      if (beam != std::numeric_limits<BaseFloat>::infinity())
-        PruneLattice(beam, &clat);
-      // If needed, sort the compact lattice in topological order
-      TopSortCompactLatticeIfNeeded(&clat);
-      // Remove epsilon arcs from the compact lattice.
-      RmEpsilon(&clat);
+      // Scale, add penalty and prune compact lattice.
+      ScaleAndPruneLattice(&clat, acoustic_scale, graph_scale,
+                           insertion_penalty, beam);
+
       // Make sure that all sequences arriving to each state have the same
       // WORD count (even if the number of characters is different).
       std::vector<size_t> state_group;
@@ -319,7 +322,10 @@ int main(int argc, char** argv) {
       std::vector< std::tuple<int32, int32> > olabels;
       CompactLatticeToWordCountSegmFst(clat, state_times, state_word_count,
                                        &log_fst, &ilabels, &olabels);
-      GroupFactorFst(&log_fst, fw, bw, state_group);
+
+      // Transform log_fst so that all its complete paths are all the subpaths
+      // from the original fst containing labels from the same group.
+      GroupFactorFst(&log_fst, state_group, fw, bw);
 
       // Remove paths from the fst which represent groups of whitespaces,
       // since we don't want to index whitespaces.

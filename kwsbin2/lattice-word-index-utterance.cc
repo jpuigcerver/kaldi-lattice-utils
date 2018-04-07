@@ -28,9 +28,9 @@
 
 namespace fst {
 
-template<typename Arc>
-void CreateQueryFst(const std::vector<typename Arc::Label> &alphabet,
-                    const typename Arc::Label &query_label,
+template <typename Arc>
+void CreateQueryFst(const typename Arc::Label &query_label,
+                    const typename Arc::Label &rho_label,
                     MutableFst<Arc> *fst) {
   typedef typename Arc::Label Label;
   typedef typename Arc::Weight Weight;
@@ -39,25 +39,20 @@ void CreateQueryFst(const std::vector<typename Arc::Label> &alphabet,
   fst->AddState();
   fst->AddState();
   fst->SetStart(0);
-
-  for (const Label &label : alphabet) {
-    if (label == 0) continue;
-    if (label == query_label) {
-      fst->AddArc(0, Arc(label, label, Weight::One(), 1));
-    } else {
-      fst->AddArc(0, Arc(label, label, Weight::One(), 0));
-    }
-    fst->AddArc(1, Arc(label, label, Weight::One(), 1));
-  }
-
   fst->SetFinal(0, Weight::Zero());
   fst->SetFinal(1, Weight::One());
 
-  constexpr uint64_t properties =
-      kExpanded | kMutable | kAcceptor | kIDeterministic | kODeterministic |
-          kNoEpsilons | kNoIEpsilons | kNoOEpsilons | kUnweighted |
-          kInitialCyclic | kAccessible | kCoAccessible;
-  fst->SetProperties(kFstProperties, properties);
+  // Add arcs sorted.
+  if (query_label < rho_label) {
+    fst->AddArc(0, Arc(query_label, query_label, Weight::One(), 1));
+    fst->AddArc(0, Arc(rho_label, rho_label, Weight::One(), 0));
+  } else {
+    fst->AddArc(0, Arc(rho_label, rho_label, Weight::One(), 0));
+    fst->AddArc(0, Arc(query_label, query_label, Weight::One(), 1));
+  }
+  fst->AddArc(1, Arc(rho_label, rho_label, Weight::One(), 1));
+
+  fst->SetProperties(kFstProperties, fst->Properties(kFstProperties, true));
 }
 
 }  // namespace fst
@@ -84,8 +79,7 @@ void ProcessLattice(
     std::vector<int32> *interesting_word_symbols) {
   // Acoustic scale
   if (acoustic_scale != 1.0 || graph_scale != 1.0) {
-    const auto lattice_scale = fst::LatticeScale(graph_scale, acoustic_scale);
-    ScaleLattice(lattice_scale, clat);
+    ScaleLattice(fst::LatticeScale(graph_scale, acoustic_scale), clat);
   }
   // Word insertion penalty
   if (insertion_penalty != 0.0) {
@@ -120,12 +114,12 @@ class ComputeWordScoreTask {
   ComputeWordScoreTask(
       const std::string &lattice_key,
       const CompactLattice &clat,
-      const std::vector<int32> &all_word_symbols,
       const int32 word_symbol,
+      const int32 rho_symbol,
       const double total_lkh,
       std::vector<std::tuple<int32, double>> *utterance_scores)
-      : key_(lattice_key), clat_(clat), all_word_symbols_(all_word_symbols),
-        word_symbol_(word_symbol), total_lkh_(total_lkh),
+      : key_(lattice_key), clat_(clat), word_symbol_(word_symbol),
+        rho_symbol_(rho_symbol), total_lkh_(total_lkh),
         utterance_scores_(utterance_scores) {}
 
   ~ComputeWordScoreTask() {
@@ -142,10 +136,10 @@ class ComputeWordScoreTask {
     // Create the fst representing the language \Sigma^* symbol \Sigma^*
     // The query fst must be deterministic so that no repeated paths are
     // added in the composition with the log_fst (i.e. original lattice).
-    CreateQueryFst(all_word_symbols_, word_symbol_, &query_lat);
+    CreateQueryFst(word_symbol_, rho_symbol_, &query_lat);
     // Compose / intersect with the lattice with the query fst to obtain
     // all paths in the lattice containing the query word.
-    Compose(clat_, query_lat, &composed_lat);
+    fst::RhoCompose(clat_, query_lat, rho_symbol_, &composed_lat);
     if (composed_lat.Start() != fst::kNoStateId) {
       // Sort states in topological order, if needed.
       TopSortCompactLatticeIfNeeded(&composed_lat);
@@ -161,8 +155,8 @@ class ComputeWordScoreTask {
  private:
   const std::string key_;
   const CompactLattice &clat_;
-  const std::vector<int32> all_word_symbols_;
   int32 word_symbol_;
+  int32 rho_symbol_;
   double total_lkh_;
   double query_lkh_;
   std::vector<std::tuple<int32, double>> *utterance_scores_;
@@ -196,6 +190,7 @@ int main(int argc, char *argv[]) {
     BaseFloat graph_scale = 1.0;
     BaseFloat insertion_penalty = 0.0;
     std::string exclude_symbols_str = "";
+    int32 rho_symbol = std::numeric_limits<int32>::max();
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
     po.Register("graph-scale", &graph_scale,
@@ -208,6 +203,10 @@ int main(int argc, char *argv[]) {
     po.Register("exclude-words", &exclude_symbols_str,
                 "Space-separated list of integers representing the words to "
                 "exclude from the index.");
+    po.Register("rho-label", &rho_symbol,
+                "Label that represents all possible word labels, it must not "
+                "be equal to any other label (you shouldn't need to modify this "
+                "in normal cases).");
 
     // Register TaskSequencer options.
     TaskSequencerConfig task_sequencer_config;
@@ -254,8 +253,8 @@ int main(int argc, char *argv[]) {
         task_sequencer.Run(new ComputeWordScoreTask(
             lattice_key,
             *clat,
-            all_word_symbols,
             word_symbol,
+            rho_symbol,
             total_lkh,
             &utterance_scores));
       }
