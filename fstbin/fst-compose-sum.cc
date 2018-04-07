@@ -23,10 +23,10 @@
 #include <iomanip>
 
 #include "base/kaldi-common.h"
-#include "util/common-utils.h"
+#include "base/timer.h"
 #include "fstext/fstext-lib.h"
 #include "fstext/normalize_fst.h"
-#include "base/timer.h"
+#include "util/common-utils.h"
 #include "util/kaldi-thread.h"
 
 void PrepareFst(
