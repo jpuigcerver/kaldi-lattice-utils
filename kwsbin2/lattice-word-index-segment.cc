@@ -118,9 +118,14 @@ class LatticeScorerTask {
               });
 
     score_writer_->Write(key_, segment_scores);
+
+    KALDI_VLOG(1) << "Lattice " << key_ << ": done in " << elapsed_
+                  << " seconds.";
   }
 
   void operator()() {
+    Timer timer;
+
     // Prepare lattice to compute the scores.
     ProcessLattice(
         key_, &clat_, acoustic_scale_, graph_scale_, insertion_penalty_,
@@ -152,6 +157,8 @@ class LatticeScorerTask {
         }
       }
     }
+
+    elapsed_ = timer.Elapsed();
   }
 
  private:
@@ -162,9 +169,9 @@ class LatticeScorerTask {
   SegmentScoreWriter *score_writer_;
   std::vector<int32> state_times_;
   std::vector<double> fw_, bw_;
-  double total_lkh_;
   MMT accumulator_;
-
+  double total_lkh_;
+  double elapsed_;
 };
 }  // namespace kaldi
 
@@ -174,7 +181,15 @@ int main(int argc, char *argv[]) {
     using namespace fst;
 
     const char *usage =
-        "";
+        "This tool is used to create a positional inverted index of the given "
+        "lattices, where the score of each word in a segment is the "
+        "probability that the word occurs in any of the transcriptions of the "
+        "utterance at that specific time position (segment).\n"
+        "\n"
+        "Usage: lattice-word-index-segment [options] <lattice-rspecifier> "
+        "<index-wspecifier>\n"
+        " e.g.: lattice-word-index-segment --acoustic-scale=0.1 ark:1.lats "
+        "ark:1.index\n";
 
     ParseOptions po(usage);
     BaseFloat beam = std::numeric_limits<BaseFloat>::infinity();
