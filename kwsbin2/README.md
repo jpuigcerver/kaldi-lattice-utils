@@ -58,6 +58,8 @@ Keyword Spotting", by J. Puigcerver et al. (2018).
 Suppose that associated time with each state in the previous Lattice is given
 by the following table:
 
+|       |     |     |     |     |     |     |     |     |     |     |
+|-------|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
 | State |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |
 | Time  |  0  |  2  |  9  |  4  |  8  | 12  | 16  | 22  | 27  | 33  |
 
