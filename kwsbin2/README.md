@@ -52,7 +52,7 @@ where the score of each word in a segment is the probability that the word
 occurs in any of the transcriptions of the utterance at that specific time
 segment.
 
-For additional details, check the PhD thesis "A Probabilistic Formulation for
+For additional details, check the PhD thesis "A Probabilistic Formulation of
 Keyword Spotting", by J. Puigcerver et al. (2018).
 
 Suppose that associated time with each state in the previous Lattice is given
