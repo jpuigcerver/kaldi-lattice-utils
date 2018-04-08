@@ -124,12 +124,13 @@ class LatticeScorerTask {
   }
 
   void operator()() {
-    Timer timer;
-
     // Prepare lattice to compute the scores.
     ProcessLattice(
         key_, &clat_, acoustic_scale_, graph_scale_, insertion_penalty_,
         beam_, &state_times_, &fw_, &bw_, &total_lkh_);
+
+    // Timer does not include preprocessing time.
+    Timer timer;
 
     for (fst::StateIterator<CompactLattice> sit(clat_); !sit.Done();
          sit.Next()) {
