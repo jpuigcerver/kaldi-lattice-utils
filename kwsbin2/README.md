@@ -55,8 +55,8 @@ segment.
 For additional details, check the PhD thesis "A Probabilistic Formulation of
 Keyword Spotting", by J. Puigcerver et al. (2018).
 
-Suppose that associated time with each state in the previous Lattice is given
-by the following table:
+For instance, let's consider the previous lattice and suppose that associated
+time with each state in the previous Lattice is given by the following table:
 
 |           |     |     |     |     |     |     |     |     |     |     |
 |-----------|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
