@@ -428,10 +428,14 @@ Int DisambiguateStatesByGroupTransitionsLength(
   return max_num_transitions;
 }
 
+// Given a state-grouped FST (a regular FST whose states are part of a given
+// group), and the Forward and Backward costs of each state, transforms the
+// given FST, so that its full-paths contain all subpaths from the original
+// FST that traverse states of the same group.
 template <typename Arc, typename Int, typename W>
 void GroupFactorFst(
-    MutableFst<Arc>* fst, const std::vector<W>& fw, const std::vector<W>& bw,
-    const std::vector<Int>& state_group) {
+    MutableFst<Arc>* fst, const std::vector<Int>& state_group,
+    const std::vector<W>& fw, const std::vector<W>& bw) {
   typedef MutableFst<Arc> Fst;
   typedef typename Arc::StateId StateId;
   typedef typename Arc::Weight Weight;
@@ -459,7 +463,7 @@ void GroupFactorFst(
     // different group than u:
     //   - Remove current arc from the fst.
     //   - Add arc from the current state (u) to the final state, with cost =
-    //     arc.weight * backwardw[v]. Since the state u is the final state of a
+    //     arc.weight * backward[v]. Since the state u is the final state of a
     //     group.
     //   - Add arc from the initial state to v, with cost =
     //     arc.weight * forward[u]. Since the state v is the start of a group.
@@ -479,7 +483,7 @@ void GroupFactorFst(
       }
     }
 
-    // Delete all original arcs from u, and all the arcs
+    // Delete all original arcs from u, and all the new arcs
     fst->DeleteArcs(u);
     for (const Arc& arc : new_arcs_from_u) {
       fst->AddArc(u, arc);
