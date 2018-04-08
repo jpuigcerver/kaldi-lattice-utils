@@ -19,6 +19,7 @@
 #include <string>
 
 #include "base/kaldi-common.h"
+#include "base/timer.h"
 #include "fstext/kaldi-fst-io.h"
 #include "lat/kaldi-lattice.h"
 #include "lat/lattice-functions.h"
@@ -28,7 +29,7 @@
 
 namespace fst {
 
-template <typename Arc>
+template<typename Arc>
 void CreateQueryFst(const typename Arc::Label &query_label,
                     const typename Arc::Label &rho_label,
                     MutableFst<Arc> *fst) {
@@ -64,7 +65,7 @@ void FilterSymbols(const std::vector<int32> &symbols,
                    const Set &exclude_symbols,
                    std::vector<int32> *filtered_symbols) {
   filtered_symbols->reserve(symbols.size());
-  for (const auto& s : symbols) {
+  for (const auto &s : symbols) {
     if (exclude_symbols.find(s) == exclude_symbols.end()) {
       filtered_symbols->push_back(s);
     }
@@ -72,11 +73,13 @@ void FilterSymbols(const std::vector<int32> &symbols,
 }
 
 void ProcessLattice(
-    CompactLattice *clat, BaseFloat acoustic_scale, BaseFloat graph_scale,
-    BaseFloat insertion_penalty, BaseFloat beam,
-    const std::set<int32>& excluded_word_symbols, double *total_lkh,
+    const std::string &key, CompactLattice *clat, BaseFloat acoustic_scale,
+    BaseFloat graph_scale, BaseFloat insertion_penalty, BaseFloat beam,
+    const std::set<int32> &excluded_word_symbols, double *total_lkh,
     std::vector<int32> *all_word_symbols,
     std::vector<int32> *interesting_word_symbols) {
+  const int64 narcs = NumArcs(*clat);
+  const int64 nstates = clat->NumStates();
   // Acoustic scale
   if (acoustic_scale != 1.0 || graph_scale != 1.0) {
     ScaleLattice(fst::LatticeScale(graph_scale, acoustic_scale), clat);
@@ -89,6 +92,11 @@ void ProcessLattice(
   if (beam != std::numeric_limits<BaseFloat>::infinity()) {
     PruneLattice(beam, clat);
   }
+  const int64 pruned_narcs = NumArcs(*clat);
+  const int64 pruned_nstates = clat->NumStates();
+  KALDI_VLOG(1) << "Lattice " << key << ": pruned #states from "
+                << nstates << " to " << pruned_nstates << " and #arcs from "
+                << narcs << " to " << pruned_narcs;
 
   all_word_symbols->clear();
   interesting_word_symbols->clear();
@@ -124,7 +132,7 @@ class ComputeWordScoreTask {
 
   ~ComputeWordScoreTask() {
     if (query_lkh_ > total_lkh_) {
-      KALDI_WARN << "Lattice \"" << key_ << "\": Found word (" << word_symbol_
+      KALDI_WARN << "Lattice " << key_ << ": found word (" << word_symbol_
                  << ") with higher likelihood than the total likelihood ("
                  << query_lkh_ << " vs. " << total_lkh_ << ")";
     }
@@ -160,6 +168,7 @@ class ComputeWordScoreTask {
   double total_lkh_;
   double query_lkh_;
   std::vector<std::tuple<int32, double>> *utterance_scores_;
+  double elapsed_;
 };
 
 }  // namespace kaldi
@@ -229,7 +238,6 @@ int main(int argc, char *argv[]) {
     typedef TableWriter<BasicTupleVectorHolder<int32, double>>
         UtteranceScoreWriter;
 
-
     const std::string lattice_rspecifier = po.GetArg(1);
     UtteranceScoreWriter utterance_writer(po.GetArg(2));
 
@@ -244,11 +252,12 @@ int main(int argc, char *argv[]) {
       double total_lkh;
       std::vector<int32> all_word_symbols, interesting_word_symbols;
       ProcessLattice(
-          clat, acoustic_scale, graph_scale, insertion_penalty, beam,
-          exclude_symbols, &total_lkh, &all_word_symbols,
+          lattice_key, clat, acoustic_scale, graph_scale, insertion_penalty,
+          beam, exclude_symbols, &total_lkh, &all_word_symbols,
           &interesting_word_symbols);
       // Schedule tasks to compute the scores of each word symbol.
       std::vector<std::tuple<int32, double>> utterance_scores;
+      Timer timer;
       for (const auto &word_symbol : interesting_word_symbols) {
         task_sequencer.Run(new ComputeWordScoreTask(
             lattice_key,
@@ -272,6 +281,10 @@ int main(int argc, char *argv[]) {
       // Write scores to the table
       utterance_writer.Write(lattice_key, utterance_scores);
       lattice_reader.FreeCurrent();
+
+      KALDI_VLOG(1) << "Lattice " << lattice_key << ": done in "
+                    << timer.Elapsed() << " seconds for "
+                    << interesting_word_symbols.size() << " words.";
     }
     utterance_writer.Close();
     return 0;
