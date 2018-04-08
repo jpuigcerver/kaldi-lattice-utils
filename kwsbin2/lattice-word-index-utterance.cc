@@ -281,10 +281,14 @@ int main(int argc, char *argv[]) {
       // Write scores to the table
       utterance_writer.Write(lattice_key, utterance_scores);
       lattice_reader.FreeCurrent();
-
+      // Print running time stats.
+      const auto effective_num_threads =
+          std::min<size_t>(interesting_word_symbols.size(),
+                   task_sequencer_config.num_threads);
       KALDI_VLOG(1) << "Lattice " << lattice_key << ": done in "
                     << timer.Elapsed() << " seconds for "
-                    << interesting_word_symbols.size() << " words.";
+                    << interesting_word_symbols.size() << " words "
+                    << "using " << effective_num_threads << " num threads.";
     }
     utterance_writer.Close();
     return 0;
