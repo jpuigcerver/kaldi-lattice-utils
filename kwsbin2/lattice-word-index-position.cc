@@ -55,11 +55,12 @@ void ProcessLattice(
                 << nstates << " to " << pruned_nstates << " and #arcs from "
                 << narcs << " to " << pruned_narcs;
 
+  Timer timer;
   if (clat->Start() != fst::kNoStateId) {
     // If needed, sort the compact lattice in topological order
     TopSortCompactLatticeIfNeeded(clat);
     // Make sure that all sequences arriving to each state have the same
-    // length.
+    // length (number of words).
     CompactLattice tmp = *clat;
     DisambiguateStateInputSequenceLength(tmp, clat, state_input_length, false);
     *total_lkh = ComputeLatticeAlphasAndBetas(*clat, false, fw, bw);
@@ -69,6 +70,8 @@ void ProcessLattice(
     bw->clear();
     *total_lkh = 0;
   }
+  KALDI_VLOG(1) << "Lattice " << key << ": Preprocessing done in "
+                << timer.Elapsed() << " seconds.";
 }
 
 class LatticeScorerTask {

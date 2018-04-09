@@ -41,10 +41,10 @@ namespace fst {
 // The cost of this algorithm is O((V + E) * I_L), where I_L is the maximum
 // number of different lengths arriving to a state. The spatial cost is the
 // same.
-template <typename Arc>
-size_t DisambiguateStateInputSequenceLength(
+template <typename Arc, typename Int>
+Int DisambiguateStateInputSequenceLength(
     const Fst<Arc>& ifst, MutableFst<Arc>* ofst,
-    std::vector<size_t>* state_input_length = nullptr,
+    std::vector<Int>* state_input_length = nullptr,
     bool use_input = false) {
   typedef typename Arc::Label Label;
   typedef typename Arc::StateId StateId;
@@ -62,9 +62,9 @@ size_t DisambiguateStateInputSequenceLength(
   // In the new fst, the states are represented by tuples:
   // (input length, state) from the old fst.
   // This map is used to map these tuples to StateId in the output fst.
-  std::map<std::tuple<size_t, StateId>, StateId> state_map;
+  std::map<std::tuple<Int, StateId>, StateId> state_map;
   // This queue is used to build the output fst.
-  std::queue<std::tuple<size_t, StateId>> Q;
+  std::queue<std::tuple<Int, StateId>> Q;
 
   // We do a first pass through the fst in order to get all the states of the
   // new fst. We need to do this first pass in order to know all the states
@@ -72,18 +72,18 @@ size_t DisambiguateStateInputSequenceLength(
   // topological order.
   state_map[std::make_tuple(0, ifst.Start())] = -1;
   Q.push(std::make_tuple(0, ifst.Start()));
-  size_t max_len = 0;
+  Int max_len = 0;
   while (!Q.empty()) {
-    const size_t len = std::get<0>(Q.front());
-    const StateId u  = std::get<1>(Q.front());
+    const Int len = std::get<0>(Q.front());
+    const StateId u = std::get<1>(Q.front());
     Q.pop();
     // Update the maximum length seen so far.
     if (max_len < len) max_len = len;
     for (ArcIterator<Fst<Arc>> aiter(ifst, u); !aiter.Done(); aiter.Next()) {
       auto arc = aiter.Value();
       // If the arc is labeled with an epsilon, then the length of the
-      // sequence is no incresead. Otherwise, it is increased.
-      const size_t next_len =
+      // sequence is not increased. Otherwise, it is increased.
+      const Int next_len =
           ((use_input ? arc.ilabel : arc.olabel) == 0) ? (len) : (len + 1);
       const auto t = std::make_tuple(next_len, arc.nextstate);
       if (state_map.emplace(t, -1).second) {
@@ -94,8 +94,8 @@ size_t DisambiguateStateInputSequenceLength(
 
   // Create states in the new fst.
   // Note: We set the NEGATIVE StateId of the new fst into state_map.
-  // We will change this to a positive value when the arcs from this new state
-  // have been processed.
+  // We will change this to a positive value when the arcs *from* this new
+  // state have been processed.
   for (auto it = state_map.begin(); it != state_map.end(); ++it) {
     it->second = -ofst->AddState();
   }
@@ -112,9 +112,9 @@ size_t DisambiguateStateInputSequenceLength(
   // Traverse the fst again in order to add the arcs in the new fst.
   Q.push(std::make_tuple(0, ifst.Start()));
   while (!Q.empty()) {
-    const size_t len = std::get<0>(Q.front());  // Input length to new state
-    const StateId u  = std::get<1>(Q.front());  // StateId in the old fst
-    const StateId u2 = state_map[Q.front()];    // StateId in the new fst
+    const Int len = std::get<0>(Q.front());    // Input length to new state
+    const StateId u = std::get<1>(Q.front());  // StateId in the old fst
+    const StateId u2 = state_map[Q.front()];   // StateId in the new fst
     Q.pop();
 
     // Set final weight for the new state in the output fst.
@@ -124,8 +124,8 @@ size_t DisambiguateStateInputSequenceLength(
     for (ArcIterator< Fst<Arc> > aiter(ifst, u); !aiter.Done(); aiter.Next()) {
       auto arc = aiter.Value();
       // If the arc is labeled with an epsilon, then the length of the sequence
-      // is no incresead. Otherwise, it is increased.
-      const size_t next_len =
+      // is not increased. Otherwise, it is increased.
+      const Int next_len =
           ((use_input ? arc.ilabel : arc.olabel) == 0) ? (len) : (len + 1);
       const auto state_tuple = std::make_tuple(next_len, arc.nextstate);
       auto state_it = state_map.find(state_tuple);

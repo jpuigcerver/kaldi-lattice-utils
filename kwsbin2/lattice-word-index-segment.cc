@@ -55,6 +55,7 @@ void ProcessLattice(
                 << nstates << " to " << pruned_nstates << " and #arcs from "
                 << narcs << " to " << pruned_narcs;
 
+  Timer timer;
   if (clat->Start() != fst::kNoStateId) {
     // If needed, sort the compact lattice in topological order
     TopSortCompactLatticeIfNeeded(clat);
@@ -66,6 +67,8 @@ void ProcessLattice(
     bw->clear();
     *total_lkh = 0;
   }
+  KALDI_VLOG(1) << "Lattice " << key << ": Preprocessing done in "
+                << timer.Elapsed() << " seconds.";
 }
 
 class LatticeScorerTask {
