@@ -79,7 +79,7 @@ First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
 tuples (each tuple separated with the character `;`) is presented.
 The first element in each tuple represents the word label, and the next two
 elements are the initial and final timesteps where the word is aligned
-(i.e. the segment where the word appeared), and the finally number is the the
+(i.e. the segment where the word appeared), and the final number is the
 log-probability that the word appears in such segment.
 The sequence of tuples is sorted by decreasing log-probability.
 
@@ -97,3 +97,49 @@ This information is more easily read in the following table:
 | a      | 0--2    | 0.2         |
 | lizard | 2--9    | 0.2         |
 | is     | 9--12   | 0.2         |
+
+
+## lattice-word-index-position
+
+This tool can be used to create a positional inverted index of the given
+lattices, in the traditional meaning of "position" in the context of search
+engines. That is, the probability that a word appears at some position within
+the transcription, for all possible transcriptions of the utterance.
+
+For additional details, check the PhD thesis "A Probabilistic Formulation of
+Keyword Spotting", by J. Puigcerver et al. (2018).
+
+For instance, using our previous example. We can obtain the positional inverted
+index with:
+
+```bash
+./lattice-word-index-position ark:egs/lattice.ark.txt ark,t:-
+```
+
+The previous command will output the following to the standard output:
+
+```
+lat1 2 3 0 ; 5 2 0 ; 6 4 0 ; 7 5 0 ; 8 6 0 ; 2 0 -0.2231435 ; 3 1 -0.2231435 ; 1 0 -1.609438 ; 4 1 -1.609438
+```
+
+First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
+tuples (each tuple separated with the character `;`) is presented.
+The first element in each tuple represents the word label, the second element
+is the position of the word within a word sequence, and the final number is the
+log-probability that the word appears in such position (in any sequence).
+The sequence of tuples is sorted by decreasing log-probability.
+
+This information is more easily read in the following table:
+
+| Word   | Position | Probability |
+|--------|----------|-------------|
+| the    | 3        | 1.0         |
+| is     | 2        | 1.0         |
+| man's  | 4        | 1.0         |
+| best   | 5        | 1.0         |
+| friend | 6        | 1.0         |
+| the    | 0        | 0.8         |
+| dog    | 1        | 0.8         |
+| a      | 0        | 0.2         |
+| lizard | 1        | 0.2         |
+

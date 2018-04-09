@@ -1,6 +1,6 @@
-// kwsbin2/lattice-word-index-segment.cc
+// latbin/lattice-word-index-position.cc
 
-// Copyright (c) 2016-2018 Joan Puigcerver <joapuipe@upv.es>
+// Copyright (c) 2017-2018 Joan Puigcerver <joapuipe@upv.es>
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,11 +17,11 @@
 
 #include <algorithm>
 #include <string>
-#include <tuple>
 
 #include "base/kaldi-common.h"
 #include "base/timer.h"
 #include "fstext/kaldi-fst-io.h"
+#include "fstext/fstext-utils2.h"
 #include "lat/kaldi-lattice.h"
 #include "lat/lattice-functions.h"
 #include "util/basic-tuple-vector-holder.h"
@@ -33,7 +33,7 @@ namespace kaldi {
 void ProcessLattice(
     const std::string &key, CompactLattice *clat, BaseFloat acoustic_scale,
     BaseFloat graph_scale, BaseFloat insertion_penalty, BaseFloat beam,
-    std::vector<int32> *state_times,
+    std::vector<int32> *state_input_length,
     std::vector<double> *fw, std::vector<double> *bw, double *total_lkh) {
   const int64 narcs = NumArcs(*clat);
   const int64 nstates = clat->NumStates();
@@ -58,10 +58,13 @@ void ProcessLattice(
   if (clat->Start() != fst::kNoStateId) {
     // If needed, sort the compact lattice in topological order
     TopSortCompactLatticeIfNeeded(clat);
-    CompactLatticeStateTimes(*clat, state_times);
+    // Make sure that all sequences arriving to each state have the same
+    // length.
+    CompactLattice tmp = *clat;
+    DisambiguateStateInputSequenceLength(tmp, clat, state_input_length, false);
     *total_lkh = ComputeLatticeAlphasAndBetas(*clat, false, fw, bw);
   } else {
-    state_times->clear();
+    state_input_length->clear();
     fw->clear();
     bw->clear();
     *total_lkh = 0;
@@ -70,54 +73,49 @@ void ProcessLattice(
 
 class LatticeScorerTask {
  public:
-  typedef std::map<int32, std::map<std::tuple<int32, int32>, double>> MMT;
-  typedef TableWriter<BasicTupleVectorHolder<int32, int32, int32, double>>
-      SegmentScoreWriter;
+  typedef TableWriter<BasicTupleVectorHolder<int32, int32, double>>
+      PositionScoreWriter;
 
   LatticeScorerTask(
       const std::string &key, const CompactLattice &clat,
       const std::set<int32> &exclude_labels,
       BaseFloat acoustic_scale, BaseFloat graph_scale,
       BaseFloat insertion_penalty, BaseFloat beam,
-      SegmentScoreWriter* score_writer) :
+      PositionScoreWriter* posterior_writer) :
       key_(key), clat_(clat), exclude_labels_(exclude_labels),
       acoustic_scale_(acoustic_scale), graph_scale_(graph_scale),
       insertion_penalty_(insertion_penalty), beam_(beam),
-      score_writer_(score_writer) {}
+      score_writer_(posterior_writer) {}
 
   ~LatticeScorerTask() {
-    // Put all segments of all words into a single vector.
-    std::vector<std::tuple<int32, int32, int32, double>> segment_scores;
+    // Put all positions of all words into a single vector.
+    std::vector<std::tuple<int32, int32, double>> position_scores;
     for (const auto& ws : accumulator_) {
       const int32 word_label = ws.first;
-      const auto& segments = ws.second;
-      for (const auto& ttp : segments) {
-        const auto& tt = ttp.first;
-        const double lkh = ttp.second;
-        segment_scores.emplace_back(
-            word_label, std::get<0>(tt), std::get<1>(tt), lkh - total_lkh_);
+      const auto& positions = ws.second;
+      for (const auto& pp : positions) {
+        const auto pos = pp.first;
+        const double lkh = pp.second;
+        position_scores.emplace_back(word_label, pos, lkh - total_lkh_);
       }
     }
     // Sort the vector according to:
     //   1) Descending probability
     //   2) Ascending word label
-    //   3) Ascending t0
-    //   4) Ascending t1
-    std::sort(segment_scores.begin(), segment_scores.end(),
-              [](const std::tuple<int32, int32, int32, double> &a,
-                 const std::tuple<int32, int32, int32, double> &b) -> bool {
-                if (std::get<3>(b) != std::get<3>(a)) {
-                  return std::get<3>(b) < std::get<3>(a);
+    //   3) Ascending position
+    std::sort(position_scores.begin(), position_scores.end(),
+              [](const std::tuple<int32, int32, double> &a,
+                 const std::tuple<int32, int32, double> &b) -> bool {
+                if (std::get<2>(b) != std::get<2>(a)) {
+                  return std::get<2>(b) < std::get<2>(a);
                 } else if (std::get<0>(a) != std::get<0>(b)) {
                   return std::get<0>(a) < std::get<0>(b);
-                } else if (std::get<1>(a) != std::get<1>(b)) {
-                  return std::get<1>(a) < std::get<1>(b);
                 } else {
-                  return std::get<2>(a) < std::get<2>(b);
+                  return std::get<1>(a) < std::get<1>(b);
                 }
               });
 
-    score_writer_->Write(key_, segment_scores);
+    score_writer_->Write(key_, position_scores);
 
     KALDI_VLOG(1) << "Lattice " << key_ << ": done in " << elapsed_
                   << " seconds.";
@@ -126,8 +124,8 @@ class LatticeScorerTask {
   void operator()() {
     // Prepare lattice to compute the scores.
     ProcessLattice(
-        key_, &clat_, acoustic_scale_, graph_scale_, insertion_penalty_,
-        beam_, &state_times_, &fw_, &bw_, &total_lkh_);
+        key_, &clat_, acoustic_scale_, graph_scale_, insertion_penalty_, beam_,
+        &state_input_len_, &fw_, &bw_, &total_lkh_);
 
     // Timer does not include preprocessing time.
     Timer timer;
@@ -139,19 +137,17 @@ class LatticeScorerTask {
         const auto &arc = ait.Value();
         const auto &label = arc.olabel;
         if (label != 0 && exclude_labels_.count(label) == 0) {
-          // Initial and final timesteps of the arc.
-          const int32 t0 = state_times_[sit.Value()];
-          const int32 t1 = state_times_[arc.nextstate];
+          // Word position within the sequence (0-based)
+          const int32 pos = state_input_len_[sit.Value()];
           // Likelhood of the arc.
           const double arc_lkh = -ConvertToCost(arc.weight);
           // Likelihood of all paths through the arc.
           const double lkh_through_arc =
               fw_[sit.Value()] + arc_lkh + bw_[arc.nextstate];
           // Add (or increment) the score for the tuple (word, t0, t1).
-          auto &label_segments = accumulator_.emplace(
-              label, MMT::mapped_type()).first->second;
-          auto ret = label_segments.emplace(
-              std::make_tuple(t0, t1), lkh_through_arc);
+          auto &label_positions = accumulator_.emplace(
+              label, std::map<int32, double>()).first->second;
+          auto ret = label_positions.emplace(pos, lkh_through_arc);
           if (!ret.second) {
             ret.first->second = LogAdd(ret.first->second, lkh_through_arc);
           }
@@ -167,10 +163,10 @@ class LatticeScorerTask {
   CompactLattice clat_;
   const std::set<int32> exclude_labels_;
   BaseFloat acoustic_scale_, graph_scale_, insertion_penalty_, beam_;
-  SegmentScoreWriter *score_writer_;
-  std::vector<int32> state_times_;
+  PositionScoreWriter *score_writer_;
+  std::vector<int32> state_input_len_;
   std::vector<double> fw_, bw_;
-  MMT accumulator_;
+  std::map<int32, std::map<int32, double>> accumulator_;
   double total_lkh_;
   double elapsed_;
 };
@@ -181,16 +177,17 @@ int main(int argc, char *argv[]) {
     using namespace kaldi;
     using namespace fst;
 
-    const char *usage =
-        "This tool is used to create a positional inverted index of the given "
-        "lattices, where the score of each word in a segment is the "
-        "probability that the word occurs in any of the transcriptions of the "
-        "utterance at that specific time position (segment).\n"
+    const char* usage =
+        "This tool creates a positional inverted index of the given lattices, "
+        "in the traditional meaning of \"position\" in the context of search "
+        "engines. That is, the probability that a word appears at some "
+        "position within the transcription, for all possible transcriptions of "
+        "the utterance.\n"
         "\n"
-        "Usage: lattice-word-index-segment [options] <lattice-rspecifier> "
-        "<index-wspecifier>\n"
-        " e.g.: lattice-word-index-segment --acoustic-scale=0.1 ark:1.lats "
-        "ark:1.index\n";
+        "Usage: lattice-to-word-position-post [options] lat-rspecifier "
+        "post-wspecifier\n"
+        " e.g.: lattice-word-index-position --acoustic-scale=0.1 ark:1.lats "
+        "ark:1.word.pos.post\n";
 
     ParseOptions po(usage);
     BaseFloat beam = std::numeric_limits<BaseFloat>::infinity();
@@ -229,7 +226,7 @@ int main(int argc, char *argv[]) {
     }
 
     const std::string lattice_rspecifier = po.GetArg(1);
-    LatticeScorerTask::SegmentScoreWriter score_writer(po.GetArg(2));
+    LatticeScorerTask::PositionScoreWriter score_writer(po.GetArg(2));
 
     TaskSequencer<LatticeScorerTask> task_sequencer(task_sequencer_config);
     for (SequentialCompactLatticeReader lattice_reader(lattice_rspecifier);
@@ -248,7 +245,7 @@ int main(int argc, char *argv[]) {
     task_sequencer.Wait();
     score_writer.Close();
     return 0;
-  } catch (const std::exception &e) {
+  } catch(const std::exception &e) {
     std::cerr << e.what();
     return -1;
   }
