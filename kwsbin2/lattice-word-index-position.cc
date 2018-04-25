@@ -33,7 +33,7 @@ namespace kaldi {
 void ProcessLattice(
     const std::string &key, CompactLattice *clat, BaseFloat acoustic_scale,
     BaseFloat graph_scale, BaseFloat insertion_penalty, BaseFloat beam,
-    std::vector<int32> *state_input_length,
+    std::vector<int32> *state_input_length, std::vector<int32> *state_time,
     std::vector<double> *fw, std::vector<double> *bw, double *total_lkh) {
   const int64 narcs = NumArcs(*clat);
   const int64 nstates = clat->NumStates();
@@ -64,6 +64,7 @@ void ProcessLattice(
     CompactLattice tmp = *clat;
     DisambiguateStateInputSequenceLength(tmp, clat, state_input_length, false);
     *total_lkh = ComputeLatticeAlphasAndBetas(*clat, false, fw, bw);
+    CompactLatticeStateTimes(*clat, state_time);
   } else {
     state_input_length->clear();
     fw->clear();
@@ -76,8 +77,11 @@ void ProcessLattice(
 
 class LatticeScorerTask {
  public:
-  typedef TableWriter<BasicTupleVectorHolder<int32, int32, double>>
+  typedef TableWriter<
+      BasicTupleVectorHolder<int32, int32, double, int32, int32>>
       PositionScoreWriter;
+  typedef std::tuple<double, double, int32, int32> map_entry;
+  typedef std::tuple<int32, int32, double, int32, int32> output_tuple;
 
   LatticeScorerTask(
       const std::string &key, const CompactLattice &clat,
@@ -92,14 +96,16 @@ class LatticeScorerTask {
 
   ~LatticeScorerTask() {
     // Put all positions of all words into a single vector.
-    std::vector<std::tuple<int32, int32, double>> position_scores;
+    std::vector<output_tuple> position_scores;
     for (const auto& ws : accumulator_) {
       const int32 word_label = ws.first;
       const auto& positions = ws.second;
       for (const auto& pp : positions) {
         const auto pos = pp.first;
-        const double lkh = pp.second;
-        position_scores.emplace_back(word_label, pos, lkh - total_lkh_);
+        const double lkh = std::get<0>(pp.second);
+        const auto t0 = std::get<2>(pp.second);
+        const auto t1 = std::get<3>(pp.second);
+        position_scores.emplace_back(word_label, pos, lkh - total_lkh_, t0, t1);
       }
     }
     // Sort the vector according to:
@@ -107,8 +113,7 @@ class LatticeScorerTask {
     //   2) Ascending word label
     //   3) Ascending position
     std::sort(position_scores.begin(), position_scores.end(),
-              [](const std::tuple<int32, int32, double> &a,
-                 const std::tuple<int32, int32, double> &b) -> bool {
+              [](const output_tuple &a, const output_tuple &b) -> bool {
                 if (std::get<2>(b) != std::get<2>(a)) {
                   return std::get<2>(b) < std::get<2>(a);
                 } else if (std::get<0>(a) != std::get<0>(b)) {
@@ -128,7 +133,7 @@ class LatticeScorerTask {
     // Prepare lattice to compute the scores.
     ProcessLattice(
         key_, &clat_, acoustic_scale_, graph_scale_, insertion_penalty_, beam_,
-        &state_input_len_, &fw_, &bw_, &total_lkh_);
+        &state_input_len_, &state_time_, &fw_, &bw_, &total_lkh_);
 
     // Timer does not include preprocessing time.
     Timer timer;
@@ -149,10 +154,24 @@ class LatticeScorerTask {
               fw_[sit.Value()] + arc_lkh + bw_[arc.nextstate];
           // Add (or increment) the score for the tuple (word, t0, t1).
           auto &label_positions = accumulator_.emplace(
-              label, std::map<int32, double>()).first->second;
-          auto ret = label_positions.emplace(pos, lkh_through_arc);
+              label, std::map<int32, map_entry>()).first->second;
+          auto ret = label_positions.emplace(
+              pos,
+              std::make_tuple(lkh_through_arc,
+                              lkh_through_arc,
+                              state_time_[sit.Value()],
+                              state_time_[arc.nextstate]));
           if (!ret.second) {
-            ret.first->second = LogAdd(ret.first->second, lkh_through_arc);
+            const auto p = LogAdd(std::get<0>(ret.first->second), lkh_through_arc);
+            auto a = std::get<1>(ret.first->second);
+            auto t0 = std::get<2>(ret.first->second);
+            auto t1 = std::get<3>(ret.first->second);
+            if (lkh_through_arc > a) {
+              a = lkh_through_arc;
+              t0 = state_time_[sit.Value()];
+              t1 = state_time_[arc.nextstate];
+            }
+            ret.first->second = std::make_tuple(p, a, t0, t1);
           }
         }
       }
@@ -168,8 +187,9 @@ class LatticeScorerTask {
   BaseFloat acoustic_scale_, graph_scale_, insertion_penalty_, beam_;
   PositionScoreWriter *score_writer_;
   std::vector<int32> state_input_len_;
+  std::vector<int32> state_time_;
   std::vector<double> fw_, bw_;
-  std::map<int32, std::map<int32, double>> accumulator_;
+  std::map<int32, std::map<int32, map_entry>> accumulator_;
   double total_lkh_;
   double elapsed_;
 };

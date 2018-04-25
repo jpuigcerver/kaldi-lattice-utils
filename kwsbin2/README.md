@@ -119,27 +119,32 @@ index with:
 The previous command will output the following to the standard output:
 
 ```
-lat1 2 3 0 ; 5 2 0 ; 6 4 0 ; 7 5 0 ; 8 6 0 ; 2 0 -0.2231435 ; 3 1 -0.2231435 ; 1 0 -1.609438 ; 4 1 -1.609438
+lat1 2 3 0 12 16 ; 5 2 0 8 12 ; 6 4 0 16 22 ; 7 5 0 22 27 ; 8 6 0 27 33 ; 2 0 -0.2231435 0 4 ; 3 1 -0.2231435 4 8 ; 1 0 -1.609438 0 2 ; 4 1 -1.609438 2 9
 ```
 
 First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
 tuples (each tuple separated with the character `;`) is presented.
 The first element in each tuple represents the word label, the second element
-is the position of the word within a word sequence, and the final number is the
-log-probability that the word appears in such position (in any sequence).
+is the position of the word within a word sequence, the third element is the
+log-probability that the word appears in such position (in any sequence),
+finally the last two elements represent the segment in which the keyword
+was found (initial and final frames).
 The sequence of tuples is sorted by decreasing log-probability.
 
 This information is more easily read in the following table:
 
-| Word   | Position | Probability |
-|--------|----------|-------------|
-| the    | 3        | 1.0         |
-| is     | 2        | 1.0         |
-| man's  | 4        | 1.0         |
-| best   | 5        | 1.0         |
-| friend | 6        | 1.0         |
-| the    | 0        | 0.8         |
-| dog    | 1        | 0.8         |
-| a      | 0        | 0.2         |
-| lizard | 1        | 0.2         |
+| Word   | Position | Segment | Probability |
+|--------|----------|---------|-------------|
+| the    | 3        | 12--16  | 1.0         |
+| is     | 2        | 8--12   | 1.0         |
+| man's  | 4        | 16--22  | 1.0         |
+| best   | 5        | 22--27  | 1.0         |
+| friend | 6        | 27--33  | 1.0         |
+| the    | 0        | 0--4    | 0.8         |
+| dog    | 1        | 4--8    | 0.8         |
+| a      | 0        | 0--2    | 0.2         |
+| lizard | 1        | 2--9    | 0.2         |
 
+Notice that there is only a single entry for the word "is" in the last table,
+whose probability is the sum of the two entries from the table in the previous
+section, and the segmentation shows the most likely segmentation.
