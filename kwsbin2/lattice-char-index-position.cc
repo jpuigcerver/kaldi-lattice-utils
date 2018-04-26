@@ -1,6 +1,6 @@
-// kwsbin2/lattice-index.cc
+// kwsbin2/lattice-char-index-position.cc
 
-// Copyright (c) 2017 Joan Puigcerver <joapuipe@upv.es>
+// Copyright (c) 2017-2018 Joan Puigcerver <joapuipe@upv.es>
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -50,63 +50,9 @@ size_t DisambiguateStatesByWordCount(
 }  // namespace kaldi
 
 
-template <typename LabelMap, typename Container>
-void AssignGroupToLabels(
-    const typename LabelMap::mapped_type& group,
-    const Container& labels, LabelMap* label_group) {
-  for (const auto label : labels) {
-    auto r = label_group->emplace(label, group);
-    if (!r.second) {
-      KALDI_ERR << "Each label must be assigned to one group at most. "
-                << "Label " << label << " was assigned to both groups "
-                << r.first->second << " and " << group << ".";
-    }
-  }
-}
 
-template <typename LabelSet, typename LabelMap, typename GroupSet>
-void ParseSeparatorGroups(const std::string& wspaces_str,
-                          const std::string& separator_groups_str,
-                          LabelSet* wspace_labels,
-                          LabelMap* label_group,
-                          GroupSet* group_inc_count) {
-  KALDI_ASSERT(wspace_labels != nullptr);
-  KALDI_ASSERT(label_group != nullptr);
-  KALDI_ASSERT(group_inc_count != nullptr);
 
-  label_group->clear();
-  group_inc_count->clear();
 
-  // Epsilon is mapped to the special group 0
-  (*label_group)[0] = 0;
-  // All labels not explicitly assigned to any group are assigned to a
-  // special group which always must increase the count of words.
-  group_inc_count->insert(std::numeric_limits<size_t>::max());
-
-  // Whitespace labels, which do not increment the count of words.
-  {
-    std::vector<typename LabelMap::key_type> tmp;
-    kaldi::SplitStringToIntegers(wspaces_str, " ", true, &tmp);
-    if (tmp.empty()) {
-      KALDI_ERR << "At least one label must be specified as a whitespace "
-                << "separator!";
-    }
-    AssignGroupToLabels(1, tmp, label_group);
-    wspace_labels->insert(tmp.begin(), tmp.end());
-  }
-
-  // Other groups of separators, which do count as words (e.g. dot, colon, etc).
-  {
-    std::vector<std::string> tmp;
-    kaldi::SplitStringToVector(separator_groups_str, ";", true, &tmp);
-    for (size_t i = 0; i < tmp.size(); ++i) {
-      std::vector<typename LabelMap::key_type> tmp2;
-      kaldi::SplitStringToIntegers(tmp[i], " ", true, &tmp2);
-      AssignGroupToLabels(i + 2, tmp2, label_group);
-      group_inc_count->emplace(i + 2);
-    }
-  }
-}
 
 template <typename Arc, typename LabelSet>
 void RemoveWhitespaceArcs(

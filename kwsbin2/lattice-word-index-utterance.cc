@@ -1,4 +1,4 @@
-// kwsbin2/lattice-index.cc
+// kwsbin2/lattice-word-index-utterance.cc
 
 // Copyright (c) 2017 Joan Puigcerver <joapuipe@upv.es>
 

@@ -208,8 +208,8 @@ void AddSequenceLengthDismabiguationSymbol(
 // Given a input FST, obtain an equivalent fst with the additional property
 // that the label of all input arcs to each state are part of the same group.
 // The group of a label is defined by the label map label_group.
-// Optionally, it can return the group of each state in the output fst and
-// you can specify wether to consider input or output labels from the input fst.
+// Optionally, it can return the group of each state in the output fst and you
+// can specify whether to consider input or output labels from the input fst.
 template <
   typename Arc,
   typename LabelMap = std::unordered_map<typename Arc::Label, size_t> >
@@ -278,6 +278,36 @@ void DisambiguateStatesByInputLabelGroup(
   auto outprops = ifst.Properties(kFstProperties, false);
   ofst->SetProperties(outprops, kFstProperties);
 }
+
+// Remove all arcs from the fst whose label's group is one of the set
+// `groups_to_remove`. The group of each label is obtained from the
+// `label_to_group` map (`use_input` specifies whether to use the input or
+// output label).
+template <
+    typename Arc,
+    typename LabelMap = std::unordered_map<typename Arc::Label, size_t>,
+    typename GroupSet = std::unordered_set<size_t>>
+void RemoveArcsByGroup(fst::MutableFst<Arc>* mfst,
+                       const LabelMap& label_to_group,
+                       const GroupSet& groups_to_remove,
+                       bool use_input) {
+  KALDI_ASSERT(mfst != nullptr);
+  auto dummyFinal = mfst->AddState();
+  for (StateIterator<MutableFst<Arc>> sit(*mfst); !sit.Done(); sit.Next()) {
+    for (MutableArcIterator<MutableFst<Arc>> ait(mfst, sit.Value());
+         !ait.Done(); ait.Next()) {
+      auto arc = ait.Value();
+      auto git = label_to_group.find(use_input ? arc.ilabel : arc.olabel);
+      KALDI_ASSERT(git != label_to_group.end());
+      const auto group = git->second;
+      if (groups_to_remove.count(group) > 0) {
+        arc.nextstate = dummyFinal;
+        ait.SetValue(arc);
+      }
+    }
+  }
+  Connect(mfst);
+};
 
 // Given a input fst such that the label of all input arcs to each state are
 // part of the same group (defined by the map label_group), this function

@@ -2,7 +2,8 @@ all:
 
 include ../kaldi.mk
 
-BINFILES = lattice-positional-index-from-chars \
+BINFILES = lattice-char-index-position \
+           lattice-char-index-segment \
            lattice-word-index-position \
            lattice-word-index-segment \
            lattice-word-index-utterance

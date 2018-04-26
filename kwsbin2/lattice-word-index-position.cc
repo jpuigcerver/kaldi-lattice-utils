@@ -1,4 +1,4 @@
-// latbin/lattice-word-index-position.cc
+// kwsbin2/lattice-word-index-position.cc
 
 // Copyright (c) 2017-2018 Joan Puigcerver <joapuipe@upv.es>
 
