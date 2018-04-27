@@ -205,7 +205,7 @@ This information is more easily read in the following table:
 | a           | 0--1    | 0.2         |
 | l i z a r d | 2--8    | 0.2         |
 
-Notice that the index is not 100% equal to the
+Notice that the index is not equivalent to the
 [lattice-word-index-segment](#lattice-word-index-segment) tool, since the
 whitespaces are not considered part of the word in this case, and are excluded
 from the corresponding word segmentation.
