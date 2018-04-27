@@ -27,12 +27,35 @@ namespace internal {
 
 // Utility classes to write an arbitrary tuple to an output stream
 
+template <class T>
+void ReadTupleElement(std::istream& is, bool binary, T* elem) {
+  ReadBasicType(is, binary, elem);
+}
+
+template <class T>
+void WriteTupleElement(std::ostream& os, bool binary, const T& elem) {
+  WriteBasicType(os, binary, elem);
+}
+
+// Specialization for std::string
+template <>
+void ReadTupleElement(std::istream& is, bool binary, std::string* elem) {
+  ReadToken(is, binary, elem);
+}
+
+template <>
+void WriteTupleElement<std::string>(
+    std::ostream& os, bool binary, const std::string& elem) {
+  WriteToken(os, binary, elem);
+}
+
 template <std::size_t E, class T>
 struct TupleWriterImpl {
   static constexpr size_t SIZE = std::tuple_size<T>::value;
   static void Write(std::ostream& os, bool binary, const T& tup) {
     constexpr std::size_t j = SIZE - E;
-    WriteBasicType(os, binary, std::get<j>(tup));
+    /* WriteBasicType(os, binary, std::get<j>(tup)); */
+    WriteTupleElement(os, binary, std::get<j>(tup));
     TupleWriterImpl<E - 1, T>::Write(os, binary, tup);
   }
 };
@@ -73,7 +96,7 @@ struct TupleReaderImpl {
         return false;
       }
     }
-    ReadBasicType(is, binary, &std::get<j>(tup));
+    ReadTupleElement(is, binary, &std::get<j>(tup));
     return TupleReaderImpl<E - 1, T>::Read(is, binary, tup);
   }
 };
