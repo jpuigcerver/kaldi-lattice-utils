@@ -149,7 +149,7 @@ Notice that there is only a single entry for the word "is" in the last table,
 whose probability is the sum of the two entries from the table in the previous
 section, and the segmentation shows the most likely segmentation.
 
-## lattice-char-index-position
+## lattice-char-index-segment
 
 This tool is used to build a segment-level word index from character lattices.
 
