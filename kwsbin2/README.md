@@ -11,7 +11,7 @@ J. Puigcerver et al. (2015).
 For instance, let's consider the following lattice, whose arcs represent
 complete words in some pre-defined vocabulary:
 
-![Composition FST](egs/word_lat.png?raw=true)
+![Word FST](egs/word_lat.png?raw=true)
 
 We can obtain the inverted index by simply calling:
 
@@ -148,3 +148,64 @@ This information is more easily read in the following table:
 Notice that there is only a single entry for the word "is" in the last table,
 whose probability is the sum of the two entries from the table in the previous
 section, and the segmentation shows the most likely segmentation.
+
+## lattice-char-index-position
+
+This tool is used to build a segment-level word index from character lattices.
+
+Characters (arcs in the lattice) are grouped into groups, and subpaths from the
+lattice are extracted so that all arcs in the subpath are part of the
+same group. This creates a straightforward approach to obtain "words" from
+the character lattices, by grouping the whitespace characters and the rest of
+characters in two different groups.
+
+Characters (labels) that should not be indexed should be part of the
+"wspace-group" (e.g. different types of whitespaces). Other groups that should
+be considered as isolated words can also be specified using the
+"--other-groups" option. Labels within a group must be separated by spaces and
+groups are separated by a semicolon (e.g. --other-groups="1 2 3 ; 4 5 6 7"
+creates two groups with 3 and 4 elements respectively). Labels not present in
+any specific group, are grouped together in a default group.
+
+Let's see an example for a character-level version of the previous lattice
+(see the [egs/char_lat.pdf](egs/char_lat.pdf) file for a better resolution).
+
+![Char FST](egs/char_lat.png?raw=true)
+
+
+```bash
+./lattice-char-index-segment "28" ark:egs/lattice.char.ark.txt ark,t:-
+```
+
+The previous command will output the following to the standard output:
+
+```
+lat1 13_1_14_27_19 0 16 21 ; 20_8_5 0 12 15 ; 2_5_19_20 0 22 26 ; 6_18_9_5_14_4 0 27 33 ; 9_19 -2.524243e-05 9 11 ; 20_8_5 -0.2231432 1 4 ; 4_15_7 -0.2231432 5 8 ; 1 -1.609439 0 1 ; 4_9_26_1_18_4 -1.609439 2 8
+```
+
+First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
+tuples (each tuple separated with the character `;`) is presented.
+The first element in each tuple is a string containing the sequence of
+characters (labels) representing the word (the labels are separated by "_").
+The second element is the log-probability of such segment, and finally the last
+two elements represent the initial and final frames of the segment.
+The sequence of tuples is sorted by decreasing log-probability.
+
+This information is more easily read in the following table:
+
+| Word        | Segment | Probability |
+|-------------|---------|-------------|
+| m a n ' s   | 16--21  | 1.0         |
+| t h e       | 12--15  | 1.0         |
+| b e s t     | 22--26  | 1.0         |
+| f r i e n d | 27--33  | 1.0         |
+| i s         | 9--11   | 1.0         |
+| t h e       | 1--4    | 0.8         |
+| d o g       | 5--8    | 0.8         |
+| a           | 0--1    | 0.2         |
+| l i z a r d | 2--8    | 0.2         |
+
+Notice that the index is not 100% equal to the
+[lattice-word-index-segment](#lattice-word-index-segment) tool, since the
+whitespaces are not considered part of the word in this case, and are excluded
+from the corresponding word segmentation.

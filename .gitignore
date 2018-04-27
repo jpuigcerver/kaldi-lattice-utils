@@ -35,3 +35,4 @@
 *~
 .valgrind
 .depend.mk
+*.dSYM

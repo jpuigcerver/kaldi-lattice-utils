@@ -75,20 +75,23 @@ class LatticeScorerTask {
  public:
   typedef std::unordered_map<fst::StdArc::Label, fst::StdArc::Label> LabelMap;
   typedef std::unordered_set<fst::StdArc::Label> GroupSet;
+  typedef std::tuple<std::string, double, int32, int32> output_tuple;
   typedef TableWriter<BasicTupleVectorHolder<std::string, double, int32, int32>>
       SegmentScoreWriter;
 
   LatticeScorerTask(const std::string &key, const CompactLattice &clat,
-                    BaseFloat acoustic_scale, BaseFloat graph_scale,
-                    BaseFloat insertion_penalty, BaseFloat beam,
                     const LabelMap& label_group,
                     const GroupSet& delete_groups,
                     const int32 num_nbest,
+                    BaseFloat determinize_delta,
+                    BaseFloat acoustic_scale, BaseFloat graph_scale,
+                    BaseFloat insertion_penalty, BaseFloat beam,
                     SegmentScoreWriter* score_writer) :
-      key_(key), clat_(clat), acoustic_scale_(acoustic_scale),
+      key_(key), clat_(clat), label_group_(label_group),
+      delete_groups_(delete_groups), num_nbest_(num_nbest),
+      determinize_delta_(determinize_delta), acoustic_scale_(acoustic_scale),
       graph_scale_(graph_scale), insertion_penalty_(insertion_penalty),
-      beam_(beam), label_group_(label_group), delete_groups_(delete_groups),
-      num_nbest_(num_nbest), score_writer_(score_writer) {}
+      beam_(beam), score_writer_(score_writer) {}
 
   ~LatticeScorerTask() {
     score_writer_->Write(key_, nbest_segment_);
@@ -157,7 +160,8 @@ class LatticeScorerTask {
 
     // Determinize subpaths FST
     fst::VectorFst<fst::LogArc> det_subpath_fst;
-    fst::Determinize(subpath_fst, &det_subpath_fst);
+    fst::Determinize(subpath_fst, &det_subpath_fst,
+                     fst::DeterminizeOptions<fst::LogArc>(determinize_delta_));
     subpath_fst.DeleteStates();  // Free memory
 
     KALDI_VLOG(1) << "Lattice " << key_ << ": "
@@ -197,17 +201,30 @@ class LatticeScorerTask {
       nbest_segment_.emplace_back(pseudoword, prob, t0, t1);
     }
 
+    // Sort the vector according to:
+    //   1) Descending probability
+    //   2) Ascending word label
+    std::sort(nbest_segment_.begin(), nbest_segment_.end(),
+              [](const output_tuple &a, const output_tuple &b) -> bool {
+                if (std::get<1>(a) != std::get<1>(b)) {
+                  return std::get<1>(a) > std::get<1>(b);
+                } else {
+                  return std::get<0>(a) < std::get<0>(b);
+                }
+              });
+
     elapsed_ = timer.Elapsed();
   }
 
  private:
   const std::string key_;
   CompactLattice clat_;
-  BaseFloat acoustic_scale_, graph_scale_, insertion_penalty_, beam_;
   LabelMap label_group_;
   GroupSet delete_groups_;
-  std::vector<std::tuple<std::string, double, int32, int32>> nbest_segment_;
   const int32 num_nbest_;
+  BaseFloat determinize_delta_;
+  BaseFloat acoustic_scale_, graph_scale_, insertion_penalty_, beam_;
+  std::vector<output_tuple> nbest_segment_;
   SegmentScoreWriter* score_writer_;
   double elapsed_;
 };
@@ -221,39 +238,38 @@ int main(int argc, char** argv) {
     typedef fst::StdArc::Label Label;
 
     const char* usage =
-        "Build a word index from character lattices.\n"
-            "\n"
-            "Words are any sequence of characters in between any of the separator "
-            "symbols. The program will output the n-best character segmentations "
-            "of words, with their score. More precisely:\n"
-            "Let R_c = 1 denote y \\in (\\Sigma^* @)? c_{1:n} (@ \\Sigma^*)? and "
-            "R_c = 0 otherwise, where @ is any of the separator symbols.\n"
-            "Then R denotes whether the transcription (y) of each utterance "
-            "contains the word formed by characters c_1,...,c_n.\n"
-            "Let s_{1:n} be a segmentation of each character in c_{1:n}, then "
-            "the program computes:\n"
-            "\n"
-            "1. If --only-best-segmentation=false (the default) then:\n"
-            "n-best_{c_{1:n},s_{1:n}} P(R_c = 1| x, s_{1:n})\n"
-            "\n"
-            "2. If --only-best-segmentation=true then:\n"
-            "n-best_{c_{1:n},s_{1:n}} max_{s_{1:n}} P(R_c = 1 | x, s_{1:n})\n"
-            "\n"
-            "This gives a lower bound to P(R_c = 1 | x), but it is usually quite "
-            "close.\n"
-            "\n"
-            "Usage: kaldi-lattice-word-index [options] separator-symbols "
-            "lat-rspecifier\n"
-            " e.g.: kaldi-lattice-word-index \"1 2\" ark:lats.ark\n"
-            " e.g.: kaldi-lattice-word-index --nbest=10000 \"1 2\" ark:lats.ark\n";
+        "Build a segment-level word index from character lattices.\n"
+        "\n"
+        "Characters (arcs in the lattice) are grouped into groups, and "
+        "subpaths from the lattice are extracted so that all arcs in the "
+        "subpath are part of the same group.\n"
+        "This creates a straightforward approach to obtain \"words\" from the "
+        "character lattices, by grouping the whitespace characters and the "
+        "rest of characters in two different groups.\n"
+        "\n"
+        "Characters (labels) that should not be indexed should be part of the "
+        "\"wspace-group\" (e.g. different types of whitespaces).\n"
+        "Other groups that should be considered as isolated words can also be "
+        "specified using the \"--other-groups\" option. Labels within a group "
+        "must be separated by spaces and groups are separated by a semicolon "
+        "(e.g. --other-groups=\"1 2 3 ; 4 5 6 7\" creates two groups with 3 "
+        "and 4 elements respectively). Labels not present in any specific "
+        "group, are grouped together in a default group.\n"
+        "\n"
+        "Usage: lattice-char-index-segment [options] <wspace-group> "
+        "<lattice-rspecifier> <index-wspecifier>\n"
+        " e.g.: lattice-char-index-segment \"1 2\" ark:lats.ark ark,t:-\n"
+        " e.g.: lattice-char-index-segment --nbest=10000 \"1 2\" "
+        "ark:lats.ark ark:index.ark\n";
 
     ParseOptions po(usage);
     BaseFloat acoustic_scale = 1.0;
     BaseFloat graph_scale = 1.0;
     BaseFloat insertion_penalty = 0.0;
     BaseFloat beam = std::numeric_limits<BaseFloat>::infinity();
+    BaseFloat determinize_delta = fst::kDelta / 8.0F;
     int nbest = 100;
-
+    std::string other_groups_str = "";
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
     po.Register("graph-scale", &graph_scale,
@@ -265,6 +281,12 @@ int main(int argc, char** argv) {
                 "Pruning beam (applied after acoustic scaling and adding the "
                 "insertion penalty).");
     po.Register("nbest", &nbest, "Extract this number of n-best hypotheses.");
+    po.Register("determinize-delta", &determinize_delta,
+                "Delta threshold used for the determinization algorithm.");
+    po.Register("other-groups", &other_groups_str,
+                "Specific labels to group as words. Groups are separated "
+                "with a semicolon, and labels within a group are separated "
+                "by spaces.");
     // Register TaskSequencer options.
     TaskSequencerConfig task_sequencer_config;
     task_sequencer_config.Register(&po);
@@ -279,24 +301,25 @@ int main(int argc, char** argv) {
     std::unordered_set<Label> wspace_labels;
     std::unordered_map<Label, Label> label_group;
     std::unordered_set<Label> groups_inc_word_count;
-    ParseSeparatorGroups(po.GetArg(1), po.GetArg(2), &wspace_labels,
+    ParseSeparatorGroups(po.GetArg(1), other_groups_str, &wspace_labels,
                          &label_group, &groups_inc_word_count);
 
-    LatticeScorerTask::SegmentScoreWriter score_writer(po.GetArg(2));
+    LatticeScorerTask::SegmentScoreWriter score_writer(po.GetArg(3));
     TaskSequencer<LatticeScorerTask> task_sequencer(task_sequencer_config);
-    for (SequentialCompactLatticeReader lattice_reader(po.GetArg(3));
+    for (SequentialCompactLatticeReader lattice_reader(po.GetArg(2));
          !lattice_reader.Done(); lattice_reader.Next()) {
       const std::string lattice_key = lattice_reader.Key();
       // Schedule task.
       task_sequencer.Run(new LatticeScorerTask(lattice_reader.Key(),
                                                lattice_reader.Value(),
+                                               label_group,
+                                               std::unordered_set<Label>{1},
+                                               nbest,
+                                               determinize_delta,
                                                acoustic_scale,
                                                graph_scale,
                                                insertion_penalty,
                                                beam,
-                                               label_group,
-                                               std::unordered_set<Label>{1},
-                                               nbest,
                                                &score_writer));
       lattice_reader.FreeCurrent();
     }

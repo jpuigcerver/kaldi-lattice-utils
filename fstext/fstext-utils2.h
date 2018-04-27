@@ -297,10 +297,12 @@ void RemoveArcsByGroup(fst::MutableFst<Arc>* mfst,
     for (MutableArcIterator<MutableFst<Arc>> ait(mfst, sit.Value());
          !ait.Done(); ait.Next()) {
       auto arc = ait.Value();
-      auto git = label_to_group.find(use_input ? arc.ilabel : arc.olabel);
-      KALDI_ASSERT(git != label_to_group.end());
-      const auto group = git->second;
-      if (groups_to_remove.count(group) > 0) {
+      const auto git = label_to_group.find(use_input ? arc.ilabel : arc.olabel);
+      const auto grp =
+          git != label_to_group.end()
+          ? git->second
+          : std::numeric_limits<typename LabelMap::mapped_type>::max();
+      if (groups_to_remove.count(grp) > 0) {
         arc.nextstate = dummyFinal;
         ait.SetValue(arc);
       }
