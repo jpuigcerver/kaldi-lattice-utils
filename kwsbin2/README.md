@@ -186,7 +186,7 @@ lat1 13_1_14_27_19 0 16 21 ; 20_8_5 0 12 15 ; 2_5_19_20 0 22 26 ; 6_18_9_5_14_4 
 First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
 tuples (each tuple separated with the character `;`) is presented.
 The first element in each tuple is a string containing the sequence of
-characters (labels) representing the word (the labels are separated by "_").
+characters (labels) representing the word (the labels are separated by `_`).
 The second element is the log-probability of such segment, and finally the last
 two elements represent the initial and final frames of the segment.
 The sequence of tuples is sorted by decreasing log-probability.
