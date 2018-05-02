@@ -78,10 +78,10 @@ void ProcessLattice(
 class LatticeScorerTask {
  public:
   typedef TableWriter<
-      BasicTupleVectorHolder<int32, int32, double, int32, int32>>
+      BasicTupleVectorHolder<int32, int32, int32, int32, double>>
       PositionScoreWriter;
   typedef std::tuple<double, double, int32, int32> map_entry;
-  typedef std::tuple<int32, int32, double, int32, int32> output_tuple;
+  typedef std::tuple<int32, int32, int32, int32, double> output_tuple;
 
   LatticeScorerTask(
       const std::string &key, const CompactLattice &clat,
@@ -101,11 +101,11 @@ class LatticeScorerTask {
       const int32 word_label = ws.first;
       const auto& positions = ws.second;
       for (const auto& pp : positions) {
-        const auto pos = pp.first;
+        const auto pos = pp.first + 1;
         const double lkh = std::get<0>(pp.second);
         const auto t0 = std::get<2>(pp.second);
         const auto t1 = std::get<3>(pp.second);
-        position_scores.emplace_back(word_label, pos, lkh - total_lkh_, t0, t1);
+        position_scores.emplace_back(word_label, pos, t0, t1, lkh - total_lkh_);
       }
     }
     // Sort the vector according to:
@@ -114,8 +114,8 @@ class LatticeScorerTask {
     //   3) Ascending position
     std::sort(position_scores.begin(), position_scores.end(),
               [](const output_tuple &a, const output_tuple &b) -> bool {
-                if (std::get<2>(b) != std::get<2>(a)) {
-                  return std::get<2>(b) < std::get<2>(a);
+                if (std::get<4>(b) != std::get<4>(a)) {
+                  return std::get<4>(b) < std::get<4>(a);
                 } else if (std::get<0>(a) != std::get<0>(b)) {
                   return std::get<0>(a) < std::get<0>(b);
                 } else {

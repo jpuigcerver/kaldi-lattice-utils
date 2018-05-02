@@ -119,7 +119,7 @@ index with:
 The previous command will output the following to the standard output:
 
 ```
-lat1 2 3 0 12 16 ; 5 2 0 8 12 ; 6 4 0 16 22 ; 7 5 0 22 27 ; 8 6 0 27 33 ; 2 0 -0.2231435 0 4 ; 3 1 -0.2231435 4 8 ; 1 0 -1.609438 0 2 ; 4 1 -1.609438 2 9
+lat1 2 4 12 16 0 ; 5 3 8 12 0 ; 6 5 16 22 0 ; 7 6 22 27 0 ; 8 7 27 33 0 ; 2 1 0 4 -0.2231435 ; 3 2 4 8 -0.2231435 ; 1 1 0 2 -1.609438 ; 4 2 2 9 -1.609438
 ```
 
 First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
@@ -135,15 +135,15 @@ This information is more easily read in the following table:
 
 | Word   | Position | Segment | Probability |
 |--------|----------|---------|-------------|
-| the    | 3        | 12--16  | 1.0         |
-| is     | 2        | 8--12   | 1.0         |
-| man's  | 4        | 16--22  | 1.0         |
-| best   | 5        | 22--27  | 1.0         |
-| friend | 6        | 27--33  | 1.0         |
-| the    | 0        | 0--4    | 0.8         |
-| dog    | 1        | 4--8    | 0.8         |
-| a      | 0        | 0--2    | 0.2         |
-| lizard | 1        | 2--9    | 0.2         |
+| the    | 4        | 12--16  | 1.0         |
+| is     | 3        | 8--12   | 1.0         |
+| man's  | 5        | 16--22  | 1.0         |
+| best   | 6        | 22--27  | 1.0         |
+| friend | 7        | 27--33  | 1.0         |
+| the    | 1        | 0--4    | 0.8         |
+| dog    | 2        | 4--8    | 0.8         |
+| a      | 1        | 0--2    | 0.2         |
+| lizard | 2        | 2--9    | 0.2         |
 
 Notice that there is only a single entry for the word "is" in the last table,
 whose probability is the sum of the two entries from the table in the previous
