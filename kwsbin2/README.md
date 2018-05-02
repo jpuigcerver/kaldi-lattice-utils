@@ -172,7 +172,6 @@ Let's see an example for a character-level version of the previous lattice
 
 ![Char FST](egs/char_lat.png?raw=true)
 
-
 ```bash
 ./lattice-char-index-segment "28" ark:egs/lattice.char.ark.txt ark,t:-
 ```
@@ -180,15 +179,15 @@ Let's see an example for a character-level version of the previous lattice
 The previous command will output the following to the standard output:
 
 ```
-lat1 13_1_14_27_19 0 16 21 ; 20_8_5 0 12 15 ; 2_5_19_20 0 22 26 ; 6_18_9_5_14_4 0 27 33 ; 9_19 -2.524243e-05 9 11 ; 20_8_5 -0.2231432 1 4 ; 4_15_7 -0.2231432 5 8 ; 1 -1.609439 0 1 ; 4_9_26_1_18_4 -1.609439 2 8
+lat1 13_1_14_27_19 16 21 0 ; 20_8_5 12 15 0 ; 2_5_19_20 22 26 0 ; 6_18_9_5_14_4 27 33 0 ; 9_19 9 11 -2.524243e-05 ; 20_8_5 1 4 -0.2231432 ; 4_15_7 5 8 -0.2231432 ; 1 0 1 -1.609439 ; 4_9_26_1_18_4 2 8 -1.609439
 ```
 
 First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
 tuples (each tuple separated with the character `;`) is presented.
 The first element in each tuple is a string containing the sequence of
 characters (labels) representing the word (the labels are separated by `_`).
-The second element is the log-probability of such segment, and finally the last
-two elements represent the initial and final frames of the segment.
+The next two elements represent the initial and final frames of the segment.
+Finally, the last element is the log-probability of such segment.
 The sequence of tuples is sorted by decreasing log-probability.
 
 This information is more easily read in the following table:
@@ -209,3 +208,51 @@ Notice that the index is not equivalent to the
 [lattice-word-index-segment](#lattice-word-index-segment) tool, since the
 whitespaces are not considered part of the word in this case, and are excluded
 from the corresponding word segmentation.
+
+## lattice-char-index-position
+
+This tool is used to build a position-level word index from character lattices.
+
+The character lattice is transformed in order to ensure that each input arc
+to each state is part of the same group of labels, in the same fashion as the
+previous tool does. Then, the lattice is transformed again to ensure that all
+paths arriving to them have traversed the same number of "groups". The latter
+gives the word-position of the state within the transcription.
+
+Using this transformation, we can easily obtain all the subpaths that traverse
+states of the same group, for each of the sentence positions.
+
+```bash
+./lattice-char-index-position "28" ark:egs/lattice.char.ark.txt ark,t:-
+```
+
+The previous command will output the following to the standard output:
+
+```
+lat1 13_1_14_27_19 5 16 21 0 ; 20_8_5 4 12 15 0 ; 2_5_19_20 6 22 26 0 ; 6_18_9_5_14_4 7 27 33 0 ; 9_19 3 9 11 -2.524243e-05 ; 20_8_5 1 1 4 -0.2231432 ; 4_15_7 2 5 8 -0.2231445 ; 1 1 0 1 -1.609439 ; 4_9_26_1_18_4 2 2 8 -1.609497
+```
+
+
+First the key of the lattice (i.e. `lat1`) is shown. Then a sequence of
+tuples (each tuple separated with the character `;`) is presented.
+The first element in each tuple is a string containing the sequence of
+characters (labels) representing the word (the labels are separated by `_`).
+The second element is the word position within the transcription.
+The next two elements represent the initial and final frames of the most likely
+segment for that word and position.
+And finally, the last element is the log-probability of such segment.
+The sequence of tuples is sorted by decreasing log-probability.
+
+This information is more easily read in the following table:
+
+| Word        | Position | Segment | Probability |
+|-------------|----------|---------|-------------|
+| m a n ' s   | 5        | 16--21  | 1.0         |
+| t h e       | 4        | 12--15  | 1.0         |
+| b e s t     | 6        | 22--26  | 1.0         |
+| f r i e n d | 7        | 27--33  | 1.0         |
+| i s         | 3        | 9--11   | 1.0         |
+| t h e       | 1        | 1--4    | 0.8         |
+| d o g       | 2        | 5--8    | 0.8         |
+| a           | 1        | 0--1    | 0.2         |
+| l i z a r d | 2        | 2--8    | 0.2         |

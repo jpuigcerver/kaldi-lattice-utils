@@ -168,7 +168,6 @@ class ComputeWordScoreTask {
   double total_lkh_;
   double query_lkh_;
   std::vector<std::tuple<int32, double>> *utterance_scores_;
-  double elapsed_;
 };
 
 }  // namespace kaldi
@@ -288,7 +287,7 @@ int main(int argc, char *argv[]) {
       KALDI_VLOG(1) << "Lattice " << lattice_key << ": done in "
                     << timer.Elapsed() << " seconds for "
                     << interesting_word_symbols.size() << " words "
-                    << "using " << effective_num_threads << " num threads.";
+                    << "using " << effective_num_threads << " threads.";
     }
     utterance_writer.Close();
     return 0;

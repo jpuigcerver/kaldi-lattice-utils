@@ -30,23 +30,6 @@
 
 namespace kaldi {
 
-template <typename Container>
-std::string LabelSequenceToString(const Container& label_sequence,
-                                  bool skip_epsilon) {
-  size_t i = 0;
-  // Skip <eps> symbols at the start of the word.
-  if (skip_epsilon) {
-    for (; i < label_sequence.size() && label_sequence[i] == 0; ++i) {}
-    if (i == label_sequence.size()) return "";
-  }
-  std::string pseudoword = std::to_string(label_sequence[i]);
-  for (size_t i = 1; i < label_sequence.size(); ++i) {
-    if (skip_epsilon && label_sequence[i] == 0) continue;
-    pseudoword += "_" + std::to_string(label_sequence[i]);
-  }
-  return pseudoword;
-}
-
 void ProcessLattice(
     const std::string &key, CompactLattice *clat, BaseFloat acoustic_scale,
     BaseFloat graph_scale, BaseFloat insertion_penalty, BaseFloat beam) {
@@ -82,9 +65,10 @@ class LatticeScorerTask {
  public:
   typedef std::unordered_map<fst::StdArc::Label, fst::StdArc::Label> LabelMap;
   typedef std::unordered_set<fst::StdArc::Label> GroupSet;
-  typedef std::tuple<std::string, double, int32, int32> output_tuple;
-  typedef TableWriter<BasicTupleVectorHolder<std::string, double, int32, int32>>
-      SegmentScoreWriter;
+  typedef std::tuple<std::string, int32, int32, double> output_tuple;
+  typedef TableWriter <
+  BasicTupleVectorHolder<std::string, int32, int32, double>>
+      ScoreWriter;
 
   LatticeScorerTask(const std::string &key, const CompactLattice &clat,
                     const LabelMap& label_group,
@@ -93,7 +77,7 @@ class LatticeScorerTask {
                     BaseFloat determinize_delta,
                     BaseFloat acoustic_scale, BaseFloat graph_scale,
                     BaseFloat insertion_penalty, BaseFloat beam,
-                    SegmentScoreWriter* score_writer) :
+                    ScoreWriter* score_writer) :
       key_(key), clat_(clat), label_group_(label_group),
       delete_groups_(delete_groups), num_nbest_(num_nbest),
       determinize_delta_(determinize_delta), acoustic_scale_(acoustic_scale),
@@ -145,8 +129,17 @@ class LatticeScorerTask {
     fst::GroupFactorFst(&subpath_fst, tmp_state_group, fw, bw);
 
     // Remove arcs from non-interesting groups (e.g. whitespace).
-    fst::RemoveArcsByGroup(
-        &subpath_fst, label_group_, delete_groups_, /* use_input= */ true);
+    fst::DeleteArcs(
+        &subpath_fst,
+        // Lambda returns true if the label's group is in the delete_groups_.
+        [this](const fst::LogArc& arc) -> bool {
+          const auto it = label_group_.find(arc.ilabel);
+          if (it != label_group_.end() && delete_groups_.count(it->second)) {
+            return true;
+          } else {
+            return false;
+          }
+        });
 
     // We want word-segmentation, instead of the character-level segmentation.
     // Thus, we need to sum all the hypotheses with the same word-level
@@ -205,18 +198,24 @@ class LatticeScorerTask {
       const auto t0 = nb_osyms.front() - 1;
       const auto t1 = nb_osyms.back() - 1;
       const auto prob = total_cost - nb_cost.Value();
-      nbest_segment_.emplace_back(pseudoword, prob, t0, t1);
+      nbest_segment_.emplace_back(pseudoword, t0, t1, prob);
     }
 
     // Sort the vector according to:
     //   1) Descending probability
     //   2) Ascending word label
+    //   3) Ascending initial frame
+    //   4) Ascending final frame
     std::sort(nbest_segment_.begin(), nbest_segment_.end(),
               [](const output_tuple &a, const output_tuple &b) -> bool {
-                if (std::get<1>(a) != std::get<1>(b)) {
-                  return std::get<1>(a) > std::get<1>(b);
-                } else {
+                if (std::get<3>(a) != std::get<3>(b)) {
+                  return std::get<3>(a) > std::get<3>(b);
+                } else if (std::get<0>(a) != std::get<0>(b)){
                   return std::get<0>(a) < std::get<0>(b);
+                } else if (std::get<1>(a) != std::get<1>(b)) {
+                  return std::get<1>(a) < std::get<1>(b);
+                } else {
+                  return std::get<2>(a) < std::get<2>(b);
                 }
               });
 
@@ -232,7 +231,7 @@ class LatticeScorerTask {
   BaseFloat determinize_delta_;
   BaseFloat acoustic_scale_, graph_scale_, insertion_penalty_, beam_;
   std::vector<output_tuple> nbest_segment_;
-  SegmentScoreWriter* score_writer_;
+  ScoreWriter* score_writer_;
   double elapsed_;
 };
 
@@ -311,10 +310,12 @@ int main(int argc, char** argv) {
     ParseSeparatorGroups(po.GetArg(1), other_groups_str, &wspace_labels,
                          &label_group, &groups_inc_word_count);
 
-    LatticeScorerTask::SegmentScoreWriter score_writer(po.GetArg(3));
+    Timer timer;
+    int num_lats = 0;
+    LatticeScorerTask::ScoreWriter score_writer(po.GetArg(3));
     TaskSequencer<LatticeScorerTask> task_sequencer(task_sequencer_config);
     for (SequentialCompactLatticeReader lattice_reader(po.GetArg(2));
-         !lattice_reader.Done(); lattice_reader.Next()) {
+         !lattice_reader.Done(); lattice_reader.Next(), ++num_lats) {
       const std::string lattice_key = lattice_reader.Key();
       // Schedule task.
       task_sequencer.Run(new LatticeScorerTask(lattice_reader.Key(),
@@ -332,6 +333,11 @@ int main(int argc, char** argv) {
     }
     task_sequencer.Wait();
     score_writer.Close();
+
+    const auto effective_num_threads =
+        std::min<size_t>(num_lats, task_sequencer_config.num_threads);
+    KALDI_LOG << "Done " << num_lats << " lattices in "  << timer.Elapsed()
+              << "s using " << effective_num_threads << " threads.";
     return 0;
   } catch (const std::exception& e) {
     std::cerr << e.what();

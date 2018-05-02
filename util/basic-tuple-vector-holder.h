@@ -96,7 +96,7 @@ struct TupleReaderImpl {
         return false;
       }
     }
-    ReadTupleElement(is, binary, &std::get<j>(tup));
+    ReadTuple(is, binary, &std::get<j>(tup));
     return TupleReaderImpl<E - 1, T>::Read(is, binary, tup);
   }
 };

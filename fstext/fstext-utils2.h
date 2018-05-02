@@ -279,30 +279,17 @@ void DisambiguateStatesByInputLabelGroup(
   ofst->SetProperties(outprops, kFstProperties);
 }
 
-// Remove all arcs from the fst whose label's group is one of the set
-// `groups_to_remove`. The group of each label is obtained from the
-// `label_to_group` map (`use_input` specifies whether to use the input or
-// output label).
-template <
-    typename Arc,
-    typename LabelMap = std::unordered_map<typename Arc::Label, size_t>,
-    typename GroupSet = std::unordered_set<size_t>>
-void RemoveArcsByGroup(fst::MutableFst<Arc>* mfst,
-                       const LabelMap& label_to_group,
-                       const GroupSet& groups_to_remove,
-                       bool use_input) {
+// Delete arcs from the fst that return true when passed to the `delete_arc'
+// functor.
+template <typename Arc, typename Functor>
+void DeleteArcs(fst::MutableFst<Arc>* mfst, const Functor& delete_arc) {
   KALDI_ASSERT(mfst != nullptr);
   auto dummyFinal = mfst->AddState();
   for (StateIterator<MutableFst<Arc>> sit(*mfst); !sit.Done(); sit.Next()) {
     for (MutableArcIterator<MutableFst<Arc>> ait(mfst, sit.Value());
          !ait.Done(); ait.Next()) {
       auto arc = ait.Value();
-      const auto git = label_to_group.find(use_input ? arc.ilabel : arc.olabel);
-      const auto grp =
-          git != label_to_group.end()
-          ? git->second
-          : std::numeric_limits<typename LabelMap::mapped_type>::max();
-      if (groups_to_remove.count(grp) > 0) {
+      if (delete_arc(arc)) {
         arc.nextstate = dummyFinal;
         ait.SetValue(arc);
       }
@@ -459,6 +446,23 @@ Int DisambiguateStatesByGroupTransitionsLength(
 
   return max_num_transitions;
 }
+
+template <typename Arc, typename LabelMap, typename GroupSet, typename Int>
+Int DisambiguateStatesByGroupTransitionsLength(
+    const Fst<Arc>& ifst,
+    const LabelMap& label_group,
+    const GroupSet& group_inc_length,
+    MutableFst<Arc>* ofst,
+    std::vector<Int>* state_input_num_transition = nullptr,
+    std::vector<Int>* output_state_group = nullptr) {
+  VectorFst<Arc> tmp;
+  std::vector<typename LabelMap::mapped_type> state_group;
+  DisambiguateStatesByInputLabelGroup(ifst, label_group, &tmp, &state_group);
+
+  return DisambiguateStatesByGroupTransitionsLength(
+      tmp, state_group, group_inc_length, ofst, state_input_num_transition,
+      output_state_group);
+};
 
 // Given a state-grouped FST (a regular FST whose states are part of a given
 // group), and the Forward and Backward costs of each state, transforms the

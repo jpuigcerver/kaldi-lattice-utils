@@ -20,6 +20,7 @@
 
 #include "lat/kaldi-lattice.h"
 #include "lat/lattice-functions.h"
+#include "fstext/fstext-utils2.h"
 
 namespace kaldi {
 
@@ -82,6 +83,34 @@ void ParseSeparatorGroups(const std::string& wspaces_str,
   }
 }
 
+template <typename Container>
+std::string LabelSequenceToString(const Container& label_sequence,
+                                  bool skip_epsilon) {
+  size_t i = 0;
+  // Skip <eps> symbols at the start of the word.
+  if (skip_epsilon) {
+    for (; i < label_sequence.size() && label_sequence[i] == 0; ++i) {}
+    if (i == label_sequence.size()) return "";
+  }
+  std::string pseudoword = std::to_string(label_sequence[i]);
+  for (size_t i = 1; i < label_sequence.size(); ++i) {
+    if (skip_epsilon && label_sequence[i] == 0) continue;
+    pseudoword += "_" + std::to_string(label_sequence[i]);
+  }
+  return pseudoword;
+}
+
+template <typename ILabel, typename OLabel, typename Functor>
+void MapLabelSequence(const std::vector<ILabel>& input,
+                      const Functor& mapper,
+                      std::vector<OLabel>* output){
+  output->clear();
+  output->reserve(input->size());
+  for (const auto& label : input) {
+    output->push_back(mapper(label));
+  }
+}
+
 }  // namespace kaldi
 
 namespace fst {
@@ -139,10 +168,90 @@ int32 CompactLatticeToSegmentFst(
   return total_frames;
 }
 
-template<typename Arc>
+// Takes as input a CompactLattice where all paths arriving to each state have
+// the same number of words, a vector associating each state in the
+// CompactLattice with a timestep (frame), and a vector associating each state
+// in the CompactLattice with its word count.
+template <typename Arc, typename LabelMap, typename GroupSet, typename Int>
+void CompactLatticeToWordCountSegmentFst(
+    const kaldi::CompactLattice& clat,
+    const LabelMap& label_group,
+    const GroupSet& group_inc_count,
+    fst::MutableFst<Arc>* ofst,
+    std::vector<typename LabelMap::mapped_type>* state_group,
+    std::vector< std::tuple<typename Arc::Label, Int> >* ilabels,
+    std::vector< std::tuple<Int, Int> >* olabels) {
+  using namespace fst;
+  using namespace kaldi;
+  typedef typename Arc::Label Label;
+  typedef typename Arc::StateId StateId;
+  ofst->DeleteStates();
+  ilabels->clear();
+  olabels->clear();
+  if (clat.Start() == kNoStateId) return;
+
+  // Make sure that all sequences arriving to each state have the same
+  // WORD count (even if the number of characters is different).
+  std::vector<typename LabelMap::mapped_type> state_word_count;
+  CompactLattice clat2;
+  DisambiguateStatesByGroupTransitionsLength(
+      clat, label_group, group_inc_count, &clat2,
+      &state_word_count, state_group);
+
+  // Compute times for each state.
+  std::vector<int32> state_times;
+  CompactLatticeStateTimes(clat2, &state_times);
+
+  // Add states to the output fst and set final weight.
+  for (StateId s = 0; s < clat2.NumStates(); ++s) {
+    ofst->SetFinal(ofst->AddState(), ConvertToCost(clat2.Final(s)));
+  }
+  // Set the initial state for the
+  ofst->SetStart(clat2.Start());
+
+  // Use these to map from tuples to label IDs.
+  std::map<std::tuple<Label, Int>, Label> ilabels_map;
+  std::map<std::tuple<Int, Int>, Label> olabels_map;
+  ilabels_map[std::make_tuple(0, 0)] = 0;
+  olabels_map[std::make_tuple(0, 0)] = 0;
+
+  for (StateIterator<CompactLattice> sit(clat2); !sit.Done(); sit.Next()) {
+    const StateId s = sit.Value();
+    for (ArcIterator<CompactLattice> ait(clat2, s); !ait.Done(); ait.Next()) {
+      const auto& arc = ait.Value();
+      const auto new_weight = ConvertToCost(arc.weight);
+      // Get input label for the equivalent arc in the output fst.
+      const auto ituple =
+          std::make_tuple(arc.ilabel, state_word_count[arc.nextstate]);
+      const auto ilabel =
+          ilabels_map.emplace(ituple, ilabels_map.size()).first->second;
+      // Get output label for the equivalent arc in the output fst.
+      const auto otuple =
+          std::make_tuple(state_times[s], state_times[arc.nextstate]);
+      const auto olabel =
+          olabels_map.emplace(otuple, olabels_map.size()).first->second;
+      // Add arc to the output fst.
+      ofst->AddArc(s, Arc(ilabel, olabel, new_weight, arc.nextstate));
+    }
+  }
+
+  ilabels->resize(ilabels_map.size());
+  for (const auto& kv : ilabels_map) {
+    (*ilabels)[kv.second] = kv.first;
+  }
+
+  olabels->resize(olabels_map.size());
+  for (const auto& kv : olabels_map) {
+    (*olabels)[kv.second] = kv.first;
+  }
+
+  ofst->SetProperties(ofst->Properties(kFstProperties, true), kFstProperties);
+}
+
+template<typename Arc, typename Int>
 void SymbolToPathSegmentationFst(
     MutableFst<Arc>* mfst,
-    const std::vector <std::tuple<int32, int32>> &label_to_segm) {
+    const std::vector <std::tuple<Int, Int>> &label_to_segm) {
   typedef typename Arc::Weight Weight;
   const auto NS = mfst->NumStates();
   for (auto s0 = mfst->Start(); s0 < NS; ++s0) {
