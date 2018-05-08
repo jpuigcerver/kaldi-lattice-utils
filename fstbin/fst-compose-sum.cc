@@ -147,6 +147,8 @@ class ComputeTotalCostComposeTask {
     Prepare(sfst1_, fst1_, false /* Sort w.r.t. olabel */);
     Prepare(sfst2_, fst2_, true  /* Sort w.r.t. ilabel */);
     total_cost_ = ComputeTotalCostCompose(*fst1_, *fst2_);
+    fst1_.reset(nullptr);
+    fst2_.reset(nullptr);
   }
 
  private:
@@ -157,7 +159,7 @@ class ComputeTotalCostComposeTask {
       ofst.reset(new fst::VectorFst<fst::LogArc>());
       PrepareFst(ifst.get(), ofst.get(), beam_, scale_, normalize_, use_inputs_,
                  ilabel_sort);
-      ifst.release();
+      ifst.reset(nullptr);
     }
   }
 
@@ -171,6 +173,118 @@ class ComputeTotalCostComposeTask {
   bool use_inputs_;
 };
 
+namespace kaldi {
+
+template<typename Holder>
+class SequentialCachedTableReader {
+ public:
+  typedef typename Holder::T T;
+
+  explicit SequentialCachedTableReader(size_t cache_size)
+      : values_(cache_size, nullptr), cache_current_(0), total_current_(0),
+        open_(false), read_once_(false) {}
+
+  SequentialCachedTableReader(const std::string &rspecifier, size_t cache_size)
+      : values_(cache_size, nullptr), rspecifier_(rspecifier),
+        cache_current_(0), total_current_(0), open_(false), read_once_(false) {
+    Open(rspecifier);
+  }
+
+  ~SequentialCachedTableReader() {
+    for (auto v : values_) {
+      if (v) {
+        delete v;
+      }
+    }
+  }
+
+  bool Open(const std::string &rspecifier) {
+    if (IsOpen()) Close();
+    if (!seq_reader_.Open(rspecifier)) return false;
+    Prefetch();
+    rspecifier_ = rspecifier;
+    open_ = true;
+    cache_current_ = 0;
+    total_current_ = 0;
+    return true;
+  }
+
+  inline bool Done() {
+    return read_once_ && total_current_ == keys_.size();
+  }
+
+  void Reset() {
+    if (!read_once_ || keys_.size() > values_.size()) {
+      if (!read_once_) { keys_.clear(); }
+      seq_reader_.Open(rspecifier_);
+      Prefetch();
+    }
+    cache_current_ = 0;
+    total_current_ = 0;
+  }
+
+  inline std::string Key() {
+    if (cache_current_ == values_.size()) {
+      Prefetch();
+      cache_current_ = 0;
+    }
+    return keys_[total_current_];
+  }
+
+  T &Value() {
+    if (cache_current_ == values_.size()) {
+      Prefetch();
+      cache_current_ = 0;
+    }
+    return *(values_[cache_current_]);
+  }
+
+  void Next() {
+    cache_current_++;
+    total_current_++;
+  }
+
+  inline bool IsOpen() const {
+    return open_;
+  }
+
+  bool Close() {
+    if (seq_reader_.IsOpen()) {
+      if (!seq_reader_.Close()) return false;
+    }
+    for (auto d : values_) {
+      delete d;
+    }
+    cache_current_ = 0;
+    total_current_ = 0;
+    open_ = false;
+    read_once_ = false;
+    return true;
+  }
+
+ private:
+  void Prefetch() {
+    for (size_t i = 0; !seq_reader_.Done() && i < values_.size();
+         seq_reader_.Next(), ++i) {
+      if (values_[i]) { delete values_[i]; }
+      values_[i] = new T(seq_reader_.Value());
+      if (!read_once_) { keys_.push_back(seq_reader_.Key()); }
+    }
+    if (seq_reader_.Done()) { read_once_ = true; }
+  }
+
+  SequentialTableReader<Holder> seq_reader_;
+  std::vector<std::string> keys_;
+  std::vector<T*> values_;
+  std::string rspecifier_;
+  size_t cache_current_;
+  size_t total_current_;
+  bool open_;
+  bool read_once_;
+};
+
+}  // namespace kaldi
+
 int main(int argc, char *argv[]) {
   try {
     using namespace kaldi;
@@ -183,6 +297,7 @@ int main(int argc, char *argv[]) {
     float beam = std::numeric_limits<float>::infinity();
     bool use_inputs = false;
     bool normalize = true;
+    int32 cache_size = 1000;
 
     const char *usage =
         "Compute the total cost of the composition of two FSTs.\n"
@@ -203,6 +318,8 @@ int main(int argc, char *argv[]) {
                 "Prune the FSTs using this beam.");
     po.Register("scale", &scale,
                 "Apply this scale factor before pruning and normalization.");
+    po.Register("cache_size", &cache_size,
+                "Maximum number of fsts2 to keep in memory.");
 
     TaskSequencerConfig sequencer_config;
     sequencer_config.Register(&po);
@@ -213,13 +330,13 @@ int main(int argc, char *argv[]) {
       exit(1);
     }
 
-    const std::string fsts_rspecifier1 = po.GetArg(1);
-    const std::string fsts_rspecifier2 = po.GetArg(2);
-
     TaskSequencer<ComputeTotalCostComposeTask> sequencer(sequencer_config);
 
     kaldi::int64 nfst1 = 0, nfst2 = 0;
-    SequentialTableReader<fst::VectorFstHolder> fst_reader1(fsts_rspecifier1);
+    SequentialTableReader<fst::VectorFstHolder> fst_reader1(po.GetArg(1));
+    SequentialCachedTableReader<fst::VectorFstHolder> fst_reader2(
+        po.GetArg(2), cache_size);
+
     for (; !fst_reader1.Done(); fst_reader1.Next(), ++nfst1) {
       const string &key1 = fst_reader1.Key();
 
@@ -230,15 +347,13 @@ int main(int argc, char *argv[]) {
                  false /* Sort w.r.t. olabel for fst::Compose */);
       fst_reader1.FreeCurrent();
 
-      SequentialTableReader<fst::VectorFstHolder> fst_reader2(
-          fsts_rspecifier2);
+      fst_reader2.Reset();
       for (nfst2 = 0; !fst_reader2.Done(); fst_reader2.Next(), ++nfst2) {
         const string &key2 = fst_reader2.Key();
         sequencer.Run(
             new ComputeTotalCostComposeTask(
                 key1, fst1, key2, fst_reader2.Value(), beam, scale, normalize,
                 use_inputs));
-        fst_reader2.FreeCurrent();
       }
     }
 
