@@ -38,9 +38,20 @@ void PrepareFst(
     bool project_input,
     bool ilabel_sort) {  // If true, sort arcs according to ilabels.
   // Scale weights
-  const fst::StdArc::Weight wscale(scale);
-  if (wscale != fst::StdArc::Weight::One()) {
-    fst::ArcMap(inp, fst::TimesMapper<fst::StdArc>(wscale));
+  if (scale != 1.0f) {
+    for (fst::StateIterator<fst::VectorFst<fst::StdArc>> sit(*inp);
+         !sit.Done(); sit.Next()) {
+      const auto s = sit.Value();
+      for (fst::MutableArcIterator<fst::VectorFst<fst::StdArc>> ait(inp, s);
+           !ait.Done(); ait.Next()) {
+        fst::StdArc arc = ait.Value();
+        arc.weight = fst::StdArc::Weight(arc.weight.Value() * scale);
+        ait.SetValue(arc);
+      }
+      if (inp->Final(s) != fst::StdArc::Weight::Zero()) {
+        inp->SetFinal(s, inp->Final(s).Value() * scale);
+      }
+    }
   }
 
   // Prune FST using the given beam.
@@ -318,7 +329,7 @@ int main(int argc, char *argv[]) {
                 "Prune the FSTs using this beam.");
     po.Register("scale", &scale,
                 "Apply this scale factor before pruning and normalization.");
-    po.Register("cache_size", &cache_size,
+    po.Register("cache-size", &cache_size,
                 "Maximum number of fsts2 to keep in memory.");
 
     TaskSequencerConfig sequencer_config;
