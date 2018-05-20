@@ -11,8 +11,9 @@ while [ $# -gt 2 ]; do
   shift;
 done;
 
+cmd="fstcompile | fstminimize ${opts[@]} | fstprint";
 fstcopy --print-args=false "$1" "ark,t:-" |
-awk 'BEGIN{
+awk -v cmd="$cmd" 'BEGIN{
   key="";
   buffer="";
 }{
@@ -24,18 +25,21 @@ awk 'BEGIN{
 
   if (NF == 0) {
     print key;
-    print buffer;
+    print buffer | cmd;
+    close(cmd);
+    print "";
 
     key = "";
     buffer = "";
     next;
   }
 
-  t = $3; $3 = $4; $4 = t;
   buffer = buffer""$0"\n";
 }END{
   if (key != "") {
     print key;
-    print buffer;
+    print buffer | cmd;
+    close(cmd);
+    print "";
   }
 }' | fstcopy --print-args=false ark:- "$2";
