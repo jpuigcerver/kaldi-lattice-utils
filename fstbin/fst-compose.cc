@@ -141,7 +141,8 @@ int main(int argc, char *argv[]) {
                             phi_label, &fst_writer, &n_done, &n_fail));
       }
     }
-
+    // Wait for all tasks.
+    task_sequencer.Wait();
     KALDI_LOG << "Done " << n_done << " fsts; failed for " << n_fail;
     return (n_done != 0 ? 0 : 1);
   } catch (const std::exception &e) {
