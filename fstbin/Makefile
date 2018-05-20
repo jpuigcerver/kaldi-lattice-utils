@@ -21,6 +21,6 @@ ADDLIBS = \
 include $(KALDI_ROOT)/src/makefiles/default_rules.mk
 
 PREFIX=/usr/local
-install: $(BINFILES)
+install: $(BINFILES) fst-project
 	test -d $(PREFIX) || mkdir -p $(PREFIX)/bin
-	install -m 0755 $(BINFILES) $(PREFIX)/bin
+	install -m 0755 $(BINFILES) fst-project $(PREFIX)/bin

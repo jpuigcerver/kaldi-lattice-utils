@@ -1,0 +1,40 @@
+#!/bin/bash
+set -e;
+
+[ $# -lt 2 ] &&
+echo "Usage: ${0##*/} [options] <fst-rspecifier> <fst-wspecifier>" >&2 &&
+exit1;
+
+opts=();
+while [ $# -gt 2 ]; do
+  opts+=("$1");
+  shift;
+done;
+
+fstcopy "$1" "ark,t:-" |
+awk 'BEGIN{
+  key="";
+  buffer="";
+}{
+  if (key == "" && NF == 1) {
+    key = $1;
+    next;
+  }
+  if (NF == 0) {
+    print key;
+    print buffer;
+    print "";
+
+    key = "";
+    buffer = "";
+    next;
+  }
+
+  buffer = buffer""$0;
+}END{
+  if (key != "") {
+    print key;
+    print buffer;
+    print "";
+  }
+}'
