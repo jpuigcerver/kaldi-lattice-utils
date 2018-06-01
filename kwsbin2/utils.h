@@ -250,34 +250,56 @@ void CompactLatticeToWordCountSegmentFst(
 
 template<typename Arc, typename Int>
 void SymbolToPathSegmentationFst(
-    MutableFst<Arc>* mfst,
-    const std::vector <std::tuple<Int, Int>> &label_to_segm) {
+    const Fst<Arc>& ifst,
+    const std::vector <std::tuple<Int, Int>> &label_to_segm,
+    MutableFst<Arc>* ofst) {
+  typedef typename Arc::StateId StateId;
   typedef typename Arc::Weight Weight;
-  const auto NS = mfst->NumStates();
-  for (auto s0 = mfst->Start(); s0 < NS; ++s0) {
-    for (MutableArcIterator<MutableFst<Arc>> ait(mfst, s0); !ait.Done(); ait.Next()) {
+  ofst->DeleteStates();
+  if (ifst.Start() == kNoStateId) return;
+
+  // Create states in the output fst
+  for (StateIterator<Fst<Arc>> sit(ifst); !sit.Done(); sit.Next()) {
+    auto ns = ofst->AddState();
+    KALDI_ASSERT(ns == sit.Value());
+    ofst->SetFinal(ns, ifst.Final(sit.Value()));
+  }
+  ofst->SetStart(ifst.Start());
+
+  for (StateIterator<Fst<Arc>> sit(ifst); !sit.Done(); sit.Next()) {
+    const auto s0 = sit.Value();
+    for (ArcIterator<Fst<Arc>> ait(ifst, s0); !ait.Done(); ait.Next()) {
       Arc arc = ait.Value();
       const auto s1 = arc.nextstate;
       // path is made of a single arc, we need at least two arcs in a subpath
       // to properly represent the start/end of a segment.
-      if (s0 == mfst->Start() && mfst->Final(s1) != Weight::Zero()) {
+      if (s0 == ifst.Start() && ifst.Final(s1) != Weight::Zero()) {
         const auto t0 = std::get<0>(label_to_segm[arc.olabel]) + 1;
         const auto t1 = std::get<1>(label_to_segm[arc.olabel]) + 1;
         // Replace output label of the existing arc, and point to a new state
         arc.olabel = t0;
-        arc.nextstate = mfst->AddState();
+        arc.nextstate = ofst->AddState();
         // Add arc from the new state to the previous destination state
-        mfst->AddArc(arc.nextstate, Arc(0, t1, Weight::One(), s1));
-      } else if (s0 == mfst->Start()) {
+        ofst->AddArc(arc.nextstate, Arc(0, t1, Weight::One(), s1));
+      } else if (s0 == ifst.Start()) {
         arc.olabel = std::get<0>(label_to_segm[arc.olabel]) + 1;
-      } else if (mfst->Final(s1) != Weight::Zero()) {
+      } else if (ifst.Final(s1) != Weight::Zero()) {
         arc.olabel = std::get<1>(label_to_segm[arc.olabel]) + 1;
       } else {
         arc.olabel = 0;
       }
-      ait.SetValue(arc);
+      ofst->AddArc(s0, arc);
     }
   }
+}
+
+template<typename Arc, typename Int>
+void SymbolToPathSegmentationFst(
+    MutableFst<Arc>* mfst,
+    const std::vector <std::tuple<Int, Int>> &label_to_segm) {
+  VectorFst<Arc> tmp;
+  SymbolToPathSegmentationFst(*mfst, label_to_segm, &tmp);
+  *mfst = tmp;
 }
 
 }  // namespace fst
