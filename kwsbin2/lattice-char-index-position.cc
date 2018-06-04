@@ -32,6 +32,7 @@ namespace kaldi {
 void ProcessLattice(
     const std::string &key, CompactLattice *clat, BaseFloat acoustic_scale,
     BaseFloat graph_scale, BaseFloat insertion_penalty, BaseFloat beam) {
+  Timer timer;
   const int64 narcs = NumArcs(*clat);
   const int64 nstates = clat->NumStates();
   // Acoustic scale
@@ -51,6 +52,12 @@ void ProcessLattice(
   KALDI_VLOG(1) << "Lattice " << key << ": pruned #states from "
                 << nstates << " to " << pruned_nstates << " and #arcs from "
                 << narcs << " to " << pruned_narcs;
+  if (clat->Start() != fst::kNoStateId) {
+    // If needed, sort the compact lattice in topological order
+    TopSortCompactLatticeIfNeeded(clat);
+  }
+  KALDI_VLOG(1) << "Lattice " << key << ": Preprocessing done in "
+                << timer.Elapsed() << " seconds.";
 }
 
 template <typename Label, typename Int>
