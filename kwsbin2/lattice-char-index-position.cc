@@ -147,7 +147,9 @@ class LatticeScorerTask {
     Timer timer;
 
     // Convert CompactLattice to LogFst with segmentation (t_start, t_end)
-    // as the output label, and the characters as the input label.
+    // as the output label, and the (character, word position) as the input
+    // label. Here, "word position" refers to the position within the sentence
+    // of the word which the character belongs to.
     fst::VectorFst<fst::LogArc> tmp_fst;
     std::vector<fst::LogArc::Label> state_group;
     std::vector< std::tuple<fst::LogArc::Label, int32> > label_to_word_pos;

@@ -33,6 +33,7 @@ long double ComputeNumberOfPaths(FST *fst) {
   typedef typename FST::StateId StateId;
 
   if (fst->Properties(kAcyclic, true) & kAcyclic) {
+    if (fst->Start() == kNoStateId) return 0;
     TopSort(fst);
     // (Log)number of paths arriving to each state.
     std::vector<long double> num_paths(fst->NumStates(), 0);
