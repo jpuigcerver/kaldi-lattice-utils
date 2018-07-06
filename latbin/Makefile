@@ -4,6 +4,7 @@ include ../kaldi.mk
 
 BINFILES = \
 	lattice-best-path2 \
+	lattice-char-to-word \
 	lattice-info \
 	lattice-prune-dyn-beam \
 	lattice-remove-ctc-blank \
