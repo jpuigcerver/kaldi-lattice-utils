@@ -1,4 +1,4 @@
-SUBDIRS = fstbin latbin kwsbin2
+SUBDIRS = fstbin fstext kwsbin2 latbin
 
 .PHONY: all install clean distclean $(SUBDIRS)
 
@@ -7,7 +7,7 @@ all: $(SUBDIRS)
 $(SUBDIRS):
 	$(MAKE) -C $@
 
-install: $(SUBDIRS)
+install:
 	-for x in $(SUBDIRS); do $(MAKE) -C $$x install; done
 
 clean:
@@ -18,3 +18,6 @@ distclean:
 
 depend:
 	-for x in $(SUBDIRS); do $(MAKE) -C $$x depend; done
+
+test:
+	-for x in $(SUBDIRS); do $(MAKE) -C $$x test; done

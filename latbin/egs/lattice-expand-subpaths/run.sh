@@ -57,10 +57,10 @@ fi;
 rm -f lattice.word.sym iam.word.sym;
 
 # Convert character-level to word-level lattice
-../../lattice-char-to-word \
+../../lattice-expand-subpaths \
   --symbol-table=lattice.word.sym \
   --symbol-table-text=true \
-  --verbose=1 \
+  --verbose=2 \
   3 ark:lattice.char.txt ark,t:lattice.word.txt;
 echo "";
 
@@ -82,10 +82,12 @@ echo "Paths from word lattice:";
 cat lattice.word.txt | get_lattice_nbest 3 | nbest_word_to_char lattice.word.sym;
 echo "";
 
+
 # Convert character to word-level lattices in IAM
-../../lattice-char-to-word \
+../../lattice-expand-subpaths \
   --symbol-table=iam.word.sym \
-  --verbose=1 \
+  --symbol-table-text=true \
+  --verbose=2 \
   "65 ; 66 ; 67 ; 68 ; 69 ; 70 ; 71 ; 74 ; 75 ; 76 ; 77 ; 78 ; 79" \
   "ark:zcat iam.char.ark.gz|" \
   "ark:|gzip -9 > iam.word.ark.gz";

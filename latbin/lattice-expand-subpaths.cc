@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2016 Joan Puigcerver <joapuipe@gmail.com>
+// Copyright (c) 2016-2018 Joan Puigcerver <joapuipe@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,9 +22,10 @@
 
 #include "base/kaldi-common.h"
 #include "base/timer.h"
-#include "fstext/expand_subpaths_fst.h"
+#include "fstext/expand-subpaths-same-label-class.h"
 #include "fstext/fstext-utils.h"
 #include "fstext/kaldi-fst-io.h"
+#include "fstext/label-group.h"
 #include "lat/kaldi-lattice.h"
 #include "lat/lattice-functions.h"
 #include "util/common-utils.h"
@@ -33,13 +34,14 @@
 namespace kaldi {
 
 using fst::ExpandSubpathsOptions;
-using fst::ExpandSubpathsByLabelGroup;
+using fst::ExpandSubpathsWithSameLabelClass;
 using fst::LabelGroup;
 using fst::SymbolTable;
 
 template<typename L, typename LW>
 class ExpandLatticeTask {
  public:
+  typedef typename L::Arc Arc;
   typedef typename L::Arc::Label Label;
 
   ExpandLatticeTask(const std::string &key,
@@ -52,7 +54,8 @@ class ExpandLatticeTask {
                     LW *lattice_writer,
                     SymbolTable *symbol_table)
       : key_(key),
-        ilat_(lat),
+        lat_(lat),
+        label_group_(label_group),
         acoustic_scale_(acoustic_scale),
         graph_scale_(graph_scale),
         beam_(beam),
@@ -61,59 +64,49 @@ class ExpandLatticeTask {
         symbol_table_(symbol_table) {}
 
   ~ExpandLatticeTask() {
-    // Note: this is executed sequentially
-
+    // Note: Destructor is executed sequentially
     // Copy symbols to the given symbol table
     if (symbol_table_) {
-      if (olat_.InputSymbols()) {
-        symbol_table_->AddTable(*olat_.InputSymbols());
+      if (lat_.InputSymbols()) {
+        symbol_table_->AddTable(*lat_.InputSymbols());
       }
-      if (olat_.OutputSymbols()) {
-        symbol_table_->AddTable(*olat_.OutputSymbols());
+      if (lat_.OutputSymbols()) {
+        symbol_table_->AddTable(*lat_.OutputSymbols());
       }
-      KALDI_VLOG(1) << "output symbol table num syms = " << symbol_table_->NumSymbols();
-
-      fst::Relabel(&olat_, symbol_table_, symbol_table_);
-      olat_.SetInputSymbols(nullptr);
-      olat_.SetOutputSymbols(nullptr);
+      fst::Relabel(&lat_, symbol_table_, symbol_table_);
+      lat_.SetInputSymbols(nullptr);
+      lat_.SetOutputSymbols(nullptr);
     }
-
-    lattice_writer_->Write(key_, olat_);
+    // Write output lattice
+    lattice_writer_->Write(key_, lat_);
   }
 
   void operator()() {
     Timer timer;
 
-    auto orig_num_states = ilat_.NumStates();
-    auto orig_num_arcs = NumArcs(ilat_);
+    auto orig_num_states = lat_.NumStates();
+    auto orig_num_arcs = NumArcs(lat_);
 
     // Prune lattice
     if (beam_ != std::numeric_limits<BaseFloat>::infinity()) {
       // Acoustic scale
       if (acoustic_scale_ != 1.0 || graph_scale_ != 1.0)
         fst::ScaleLattice(fst::LatticeScale(graph_scale_,
-                                            acoustic_scale_), &ilat_);
-      PruneLattice(beam_, &ilat_);
+                                            acoustic_scale_), &lat_);
+      PruneLattice(beam_, &lat_);
       // Put weights into the original scale
       if (acoustic_scale_ != 1.0 || graph_scale_ != 1.0)
         fst::ScaleLattice(fst::LatticeScale(1.0 / graph_scale_,
-                                            1.0 / acoustic_scale_), &ilat_);
+                                            1.0 / acoustic_scale_), &lat_);
 
-      const auto aux = NumArcs(ilat_);
+      const auto aux = NumArcs(lat_);
       KALDI_VLOG(1) << "Lattice " << key_
                     << " pruned #states from " << orig_num_states
-                    << " to " << ilat_.NumStates()
+                    << " to " << lat_.NumStates()
                     << " and #arcs from " << orig_num_arcs
                     << " to " << aux;
       orig_num_arcs = aux;
-      orig_num_states = ilat_.NumStates();
-    }
-
-    // TopSort lattice, this is required by the ExpandSubpathsByLabelGroup alg.
-    if (ilat_.Properties(fst::kTopSorted, true) == 0) {
-      if (fst::TopSort(&ilat_) == false) {
-        KALDI_ERR << "Topological sorting failed";
-      }
+      orig_num_states = lat_.NumStates();
     }
 
     // Note: Optionally, report the time spend in the preparing the lattice
@@ -124,17 +117,22 @@ class ExpandLatticeTask {
     // Expansion of subpaths formed by arcs of the same group of labels.
     // WARNING: THIS HAS AN EXPONENTIAL WORST CASE COST
     const auto out_num_arcs =
-        ExpandSubpathsByLabelGroup(ilat_, label_group_, &olat_, opts_);
-    const auto out_num_states = olat_.NumStates();
+        ExpandSubpathsWithSameLabelClass<Arc, Label>(label_group_, &lat_, opts_);
+    const auto out_num_states = lat_.NumStates();
     KALDI_LOG << "Lattice " << key_ << " expanded #states from "
               << orig_num_states << " to " << out_num_states
               << " and #arcs from " << orig_num_arcs << " to " << out_num_arcs
               << " in " << timer.Elapsed() << " seconds.";
+    KALDI_VLOG(1) << "Lattice " << key_
+                  << ": input subpath symbols = "
+                  << lat_.InputSymbols()->NumSymbols()
+                  << ", output subpath symbols = "
+                  << lat_.OutputSymbols()->NumSymbols();
   }
 
  protected:
   const std::string key_;
-  L ilat_, olat_;
+  L lat_;
   LabelGroup<Label> label_group_;
   BaseFloat acoustic_scale_, graph_scale_, beam_;
   ExpandSubpathsOptions opts_;
@@ -173,29 +171,31 @@ int main(int argc, char **argv) {
     typedef CompactLattice::Arc::Label Label;
 
     const char *usage =
-        "Convert character-level lattices into word-level lattices by "
-        "expanding the subpaths in between any of two separator symbols.\n"
+        "Expand subpaths in lattices where all labels in the path have "
+        "the same \"class\".\n"
         "\n"
-        "Keep in mind that this lattice expansion has an exponential cost. "
-        "For instance, if the set of separator symbols was empty, all paths "
-        "from the input lattice would be expanded, so that each arc in the "
-        "output lattice would be a full path from the input lattice.\n"
+        "This is useful, for instance, to convert character lattice into "
+        "word lattices, by expanding the subpaths between \"whitespaces\" "
+        "or other delimiters.\n"
         "\n"
-        "However, the exponential growth is constrained by the use of "
-        "separator symbols, and make the tool practical in real scenarios.\n"
+        "Keep in mind that the expansion has an EXPONENTIAL COST with "
+        "respect the maximum output degree and length of the subpaths "
+        "(i.e. O(degree^length)).\n"
         "\n"
-        "In addition, there are two pruning mechanisms to prevent the output "
-        "lattices from exploding:\n"
+        "In practice, the exponential cost is not an issue since the "
+        "subpaths are not very long. If you are facing problems with "
+        "some particular lattice, you can use two pruning mechanisms "
+        "to prevent the output lattices from exploding:\n"
         "\n"
-        "1. You can prune the character lattices before expanding with the "
+        "  a) You can prune the lattices before expanding with the "
         "--beam option.\n"
-        "2. You can set a maximum length for the output words with the "
-        "--max-length option. Any path with a word longer than this number "
-        "of characters will be removed from the output path.\n"
+        "  b) You can set a maximum length for the expanded paths "
+        "--max-length option. Any path with a subpath longer than this "
+        "will not be added to the output lattice.\n"
         "\n"
-        "Usage: lattice-char-to-word [options] symbol-groups "
+        "Usage: lattice-expand-subpaths [options] label-groups "
         "lat-rspecifier lat-wspecifier\n"
-        " e.g.: lattice-char-to-word \"3 ; 4 ; 5 6\" ark:1.lat ark:1-word.lat\n";
+        " e.g.: lattice-expand-subpaths \"3 ; 4 ; 5 6\" ark:1.lat ark:1-word.lat\n";
 
     ParseOptions po(usage);
     BaseFloat acoustic_scale = 1.0;
@@ -219,7 +219,7 @@ int main(int argc, char **argv) {
                 "If a symbol table is given, it will write the table in text "
                 "mode.");
     po.Register("max-length", &max_length,
-                "Max. length (in characters) for a word.");
+                "Maximum length of a subpath.");
     // Register TaskSequencer options.
     TaskSequencerConfig task_sequencer_config;
     task_sequencer_config.Register(&po);
@@ -236,7 +236,7 @@ int main(int argc, char **argv) {
     }
 
     LabelGroup<Label> label_group;
-    label_group.AddGroupsStr(po.GetArg(1));
+    label_group.ParseString(po.GetArg(1));
     const std::string lattice_in_str = po.GetArg(2);
     const std::string lattice_out_str = po.GetArg(3);
 
@@ -244,7 +244,6 @@ int main(int argc, char **argv) {
         symbols_table_str.empty()
         ? nullptr
         : fst::ReadOrCreateSymbolTable(symbols_table_str);
-    std::cerr << (symbol_table == nullptr) << std::endl;
 
     TaskSequencer<ExpandLatticeTask<CompactLattice, CompactLatticeWriter>>
         task_sequencer(task_sequencer_config);
@@ -269,11 +268,12 @@ int main(int argc, char **argv) {
     task_sequencer.Wait();
 
     if (symbol_table) {
+      KALDI_VLOG(1) << "Output symbol table contains "
+                    << symbol_table->NumSymbols() << " symbols.";
       fst::WriteSymbolTable(*symbol_table,
                             symbols_table_str,
                             symbols_table_text);
     }
-
     return 0;
   } catch (const std::exception &e) {
     std::cerr << e.what();

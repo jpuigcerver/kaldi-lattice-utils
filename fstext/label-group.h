@@ -16,8 +16,10 @@ class LabelGroup {
     num_groups_ = 1;
   }
 
-  template <typename Container>
-  void AddGroup(const Container& labels) {
+  LabelGroup(const LabelGroup& other)
+      : map_(other.map_), num_groups_(other.num_groups_) {}
+
+  void AddGroup(const std::vector<Label>& labels) {
     for (const auto& label : labels) {
       auto r = map_.emplace(label, num_groups_);
       if (!r.second) {
@@ -30,7 +32,7 @@ class LabelGroup {
     ++num_groups_;
   }
 
-  void AddGroupsStr(const std::string& multi_group_str) {
+  void ParseString(const std::string& multi_group_str) {
     std::vector<std::string> tmp;
     kaldi::SplitStringToVector(multi_group_str, ";", true, &tmp);
     for (const auto& group_str : tmp) {
@@ -43,10 +45,14 @@ class LabelGroup {
   Label operator[](const Label& label) const {
     auto it = map_.find(label);
     if (it == map_.end()) {
-      return std::numeric_limits<Label>::max();
+      return num_groups_;
     } else {
       return it->second;
     }
+  }
+
+  Label operator()(const Label& label) const {
+    return operator[](label);
   }
 
   Label NumGroups() const {

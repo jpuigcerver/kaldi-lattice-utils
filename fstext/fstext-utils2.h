@@ -22,11 +22,76 @@
 #include <queue>
 #include <vector>
 
-#include <fst/fstlib.h>
-
 #include "base/kaldi-common.h"
+#include "fst/fstlib.h"
 
 namespace fst {
+
+template<typename Label>
+std::string LabelVectorToString(const std::vector<Label> &v,
+                                const SymbolTable* table,
+                                const std::string &sep = " ",
+                                bool exclude_epsilon = true) {
+  std::string str;
+  for (Label label : v) {
+    if (exclude_epsilon && label == 0) continue;
+    if (!str.empty()) str += sep;
+    str += table ? table->Find(label) : std::to_string(label);
+  }
+  return str;
+}
+
+template<typename Label>
+std::string LabelVectorToString(const std::vector<Label> &v,
+                                const SymbolTable* table,
+                                const char sep,
+                                bool exclude_epsilon = true) {
+  const std::string ssep(1, sep);
+  return LabelVectorToString(v, table, ssep, exclude_epsilon);
+}
+
+template<class Arc, class I>
+bool GetLinearSymbolSequence(const Fst<Arc> &fst,
+                             vector<I> *isymbols_out,
+                             vector<I> *osymbols_out,
+                             typename Arc::Weight *tot_weight_out,
+                             bool include_eps) {
+  typedef typename Arc::StateId StateId;
+  typedef typename Arc::Weight Weight;
+
+  Weight tot_weight = Weight::One();
+  vector<I> ilabel_seq;
+  vector<I> olabel_seq;
+
+  StateId cur_state = fst.Start();
+  if (cur_state == kNoStateId) {  // empty sequence.
+    if (isymbols_out != NULL) isymbols_out->clear();
+    if (osymbols_out != NULL) osymbols_out->clear();
+    if (tot_weight_out != NULL) *tot_weight_out = Weight::Zero();
+    return true;
+  }
+  while (1) {
+    Weight w = fst.Final(cur_state);
+    if (w != Weight::Zero()) {  // is final..
+      tot_weight = Times(w, tot_weight);
+      if (fst.NumArcs(cur_state) != 0) return false;
+      if (isymbols_out != NULL) *isymbols_out = ilabel_seq;
+      if (osymbols_out != NULL) *osymbols_out = olabel_seq;
+      if (tot_weight_out != NULL) *tot_weight_out = tot_weight;
+      return true;
+    } else {
+      if (fst.NumArcs(cur_state) != 1) return false;
+
+      ArcIterator<Fst<Arc> > iter(fst, cur_state);  // get the only arc.
+      const Arc &arc = iter.Value();
+      tot_weight = Times(arc.weight, tot_weight);
+      if (include_eps || arc.ilabel != 0) ilabel_seq.push_back(arc.ilabel);
+      if (include_eps || arc.olabel != 0) olabel_seq.push_back(arc.olabel);
+      cur_state = arc.nextstate;
+    }
+  }
+}
+
 
 // Given an acyclic fst, creates an equivalent fst such that all sequences
 // arriving to any state have the same length.

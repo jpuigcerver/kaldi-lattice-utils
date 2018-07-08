@@ -2,11 +2,12 @@ all:
 
 include ../kaldi.mk
 
-TESTFILES = fstext-utils2-test
+TESTFILES = expand-subpaths-same-label-class-test \
+	    label-group-test \
+            make-preceding-symbols-same-class-test
 
 ADDLIBS = \
 	$(KALDI_ROOT)/src/fstext/kaldi-fstext.a \
-	$(KALDI_ROOT)/src/tree/kaldi-tree.a \
 	$(KALDI_ROOT)/src/util/kaldi-util.a \
 	$(KALDI_ROOT)/src/matrix/kaldi-matrix.a \
 	$(KALDI_ROOT)/src/base/kaldi-base.a
