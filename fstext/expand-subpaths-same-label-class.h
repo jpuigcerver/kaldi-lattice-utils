@@ -124,8 +124,8 @@ size_t ExpandSubpathsWithSameLabelClass(
       const auto &cns =
           state_class[arc.nextstate] != c_eps
           ? state_class[arc.nextstate] : cp;
-      if ((cp == c_eps || cp == cns) &&
-          non_expandable_classes.count(cns) == 0) {
+      if (cp == c_eps ||
+          (cp == cns && non_expandable_classes.count(cns) == 0)) {
         if (arc.ilabel) ilbls.push_back(arc.ilabel);
         if (arc.olabel) olbls.push_back(arc.olabel);
         const auto curr_length = opts.use_input ? ilbls.size() : olbls.size();

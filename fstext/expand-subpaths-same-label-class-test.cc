@@ -11,14 +11,15 @@
 
 using namespace fst;
 
-template<typename F, typename Label>
+template<typename ClassType, typename F, typename Label>
 void SplitPathByLabelClass(
     const F &f,
     const std::vector<Label> &isyms,
     const std::vector<Label> &osyms,
     std::vector<std::string> *isubpaths,
     std::vector<std::string> *osubpaths,
-    bool use_input) {
+    bool use_input,
+    const std::set<ClassType>& non_expandable_symbols) {
   KALDI_ASSERT(isyms.size() == osyms.size());
   isubpaths->clear();
   osubpaths->clear();
@@ -27,8 +28,10 @@ void SplitPathByLabelClass(
   auto cls_prev = cls_eps;
   std::vector<Label> isubpath, osubpath;
   for (size_t i = 0; i < isyms.size(); ++i) {
-    const auto cls_curr = f(use_input ? isyms[i] : osyms[i]);
-    if (cls_curr == cls_prev || cls_prev == cls_eps || cls_curr == cls_eps) {
+    auto cls_curr = f(use_input ? isyms[i] : osyms[i]);
+    if (cls_curr == cls_eps) { cls_curr = cls_prev; }
+    if (cls_prev == cls_eps ||
+        (cls_curr == cls_prev && non_expandable_symbols.count(cls_curr) == 0)) {
       isubpath.push_back(isyms[i]);
       osubpath.push_back(osyms[i]);
     } else {
@@ -43,7 +46,7 @@ void SplitPathByLabelClass(
       isubpath.push_back(isyms[i]);
       osubpath.push_back(osyms[i]);
     }
-    cls_prev = cls_curr != cls_eps ? cls_curr : cls_prev;
+    cls_prev = cls_curr;
   }
 
   const auto istr = LabelVectorToString(isubpath, nullptr, kStringSeparator);
@@ -62,12 +65,13 @@ std::string StringVectorToString(const std::vector<std::string> &v,
   return str;
 }
 
-template<typename F>
+template<typename ClassType, typename F>
 bool ExpandAndGetPathsOfSubpathsFromFst(
     const F &f,
     const VectorFst<StdArc> &vfst,
     std::vector<std::tuple<float, std::string, std::string>> *paths,
-    bool use_input) {
+    bool use_input,
+    const std::set<ClassType>& non_expandable_labels = std::set<ClassType>()) {
   typedef StdArc::Label Label;
 
   if (vfst.Properties(kAcyclic, true) != kAcyclic)
@@ -88,8 +92,9 @@ bool ExpandAndGetPathsOfSubpathsFromFst(
         path, &path_isyms, &path_osyms, &path_cost, /*include_eps=*/true);
 
     std::vector<std::string> isubpaths, osubpaths;
-    SplitPathByLabelClass(
-        f, path_isyms, path_osyms, &isubpaths, &osubpaths, use_input);
+    SplitPathByLabelClass<ClassType, F, StdArc::Label>(
+        f, path_isyms, path_osyms, &isubpaths, &osubpaths, use_input,
+        non_expandable_labels);
 
     paths->emplace_back(
         path_cost.Value(),
@@ -162,14 +167,24 @@ std::string LabelClassFunctionSummary(
   return oss.str();
 }
 
-template<typename Arc, typename F>
+template <typename T>
+std::string SetToString(const std::set<T>& s) {
+  std::ostringstream oss;
+  for (const auto& v: s) {
+    oss << v << " ";
+  }
+  return oss.str();
+}
+
+template<typename Arc, typename ClassType, typename F>
 void TestPathsOfSubpaths(
     const std::string &test_name,
     const Fst<Arc> &ifst,
     const F &func,
     const bool use_input,
     const std::vector<std::tuple<float, std::string, std::string>> &expected,
-    const std::vector<std::tuple<float, std::string, std::string>> &actual) {
+    const std::vector<std::tuple<float, std::string, std::string>> &actual,
+    const std::set<ClassType>& non_expandable_classes = std::set<ClassType>()) {
   if (!AreBestPathsEqual(expected, actual)) {
     std::ostringstream oss;
     fst::script::PrintFst(
@@ -183,21 +198,48 @@ void TestPathsOfSubpaths(
               << oss.str() << "\n"
               << "Label classes:\n"
               << LabelClassFunctionSummary(ifst, func, use_input) << "\n"
+              << "Non-expandable classes:\n"
+              << SetToString(non_expandable_classes) << "\n"
               << "Expected paths:\n"
               << PathsOfSubpathsToString(expected) << "\n"
               << "Actual paths:\n"
               << PathsOfSubpathsToString(actual) << "\n";
+  } else {
+    /*
+    // USED ONLY FOR DEBUGGING
+    std::ostringstream oss;
+    fst::script::PrintFst(
+        ifst,
+        oss,
+        "",
+        ifst.InputSymbols(),
+        ifst.OutputSymbols());
+    KALDI_LOG << "SUCCEEDED TEST " + test_name + ":\n"
+              << "Original FST:\n"
+              << oss.str() << "\n"
+              << "Label classes:\n"
+              << LabelClassFunctionSummary(ifst, func, use_input) << "\n"
+              << "Non-expandable classes:\n"
+              << SetToString(non_expandable_classes) << "\n"
+              << "Expected paths:\n"
+              << PathsOfSubpathsToString(expected) << "\n"
+              << "Actual paths:\n"
+              << PathsOfSubpathsToString(actual) << "\n";
+    */
   }
 }
 
 void TestExpandSubpathsWithSameLabelClassAllSame() {
   typedef StdArc::Label Label;
   ExpandSubpathsOptions expand_opts;
-  RandFstOptions rand_opts;
-  rand_opts.acyclic = true;
   std::set<bool> non_expandable_classes;
 
   for (int r = 0; r < 100; ++r) {
+    RandFstOptions rand_opts;
+    rand_opts.acyclic = true;
+    rand_opts.n_syms = 2 + rand() % 10;
+    rand_opts.n_states = 5 + rand() % 20;
+    rand_opts.n_arcs = 10 + kaldi::Rand() % 40;
     VectorFst<StdArc> *ifst = RandFst<StdArc>(rand_opts), ofst;
     std::vector<std::tuple<float, std::string, std::string>> expected_paths,
         actual_paths;
@@ -206,13 +248,12 @@ void TestExpandSubpathsWithSameLabelClassAllSame() {
 
     // use_input = true
     expand_opts.use_input = true;
-    KALDI_ASSERT(
-        ExpandAndGetPathsOfSubpathsFromFst(f, *ifst, &expected_paths, true));
-    const auto num_arcs1 =
-        ExpandSubpathsWithSameLabelClass<StdArc, bool>(
-            f, *ifst, &ofst, non_expandable_classes, expand_opts);
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<bool>(
+        f, *ifst, &expected_paths, true));
+    const auto num_arcs1 = ExpandSubpathsWithSameLabelClass<StdArc, bool>(
+        f, *ifst, &ofst, non_expandable_classes, expand_opts);
     KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
-    TestPathsOfSubpaths(
+    TestPathsOfSubpaths<StdArc, bool>(
         "TestExpandSubpathsWithSameLabelClassAllSame", *ifst, f, true,
         expected_paths, actual_paths);
     KALDI_ASSERT(num_arcs1 == expected_paths.size());
@@ -220,13 +261,12 @@ void TestExpandSubpathsWithSameLabelClassAllSame() {
 
     // use_input = false
     expand_opts.use_input = false;
-    KALDI_ASSERT(
-        ExpandAndGetPathsOfSubpathsFromFst(f, *ifst, &expected_paths, false));
-    const auto num_arcs2 =
-        ExpandSubpathsWithSameLabelClass<StdArc, bool>(
-            f, *ifst, &ofst, non_expandable_classes, expand_opts);
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<bool>(
+        f, *ifst, &expected_paths, false));
+    const auto num_arcs2 = ExpandSubpathsWithSameLabelClass<StdArc, bool>(
+        f, *ifst, &ofst, non_expandable_classes, expand_opts);
     KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
-    TestPathsOfSubpaths(
+    TestPathsOfSubpaths<StdArc, bool>(
         "TestExpandSubpathsWithSameLabelClassAllSame", *ifst, f, false,
         expected_paths, actual_paths);
     KALDI_ASSERT(num_arcs2 == expected_paths.size());
@@ -237,11 +277,14 @@ void TestExpandSubpathsWithSameLabelClassAllSame() {
 void TestExpandSubpathsWithSameLabelClassAllDifferent() {
   typedef StdArc::Label Label;
   ExpandSubpathsOptions expand_opts;
-  RandFstOptions rand_opts;
-  rand_opts.acyclic = true;
   std::set<Label> non_expandable_classes;
 
   for (int r = 0; r < 100; ++r) {
+    RandFstOptions rand_opts;
+    rand_opts.acyclic = true;
+    rand_opts.n_syms = 2 + rand() % 10;
+    rand_opts.n_states = 5 + rand() % 20;
+    rand_opts.n_arcs = 10 + kaldi::Rand() % 40;
     VectorFst<StdArc> *ifst = RandFst<StdArc>(rand_opts), ofst;
     std::vector<std::tuple<float, std::string, std::string>>
         expected_paths, actual_paths;
@@ -250,24 +293,24 @@ void TestExpandSubpathsWithSameLabelClassAllDifferent() {
 
     // use_input = true
     expand_opts.use_input = true;
-    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst(
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<Label>(
         f, *ifst, &expected_paths, true));
     ExpandSubpathsWithSameLabelClass<StdArc, Label>(
         f, *ifst, &ofst, non_expandable_classes, expand_opts);
     KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
-    TestPathsOfSubpaths(
+    TestPathsOfSubpaths<StdArc, Label>(
         "TestExpandSubpathsWithSameLabelClassAllDifferent", *ifst, f, true,
         expected_paths, actual_paths);
 
 
     // use_input = false
     expand_opts.use_input = false;
-    KALDI_ASSERT(
-        ExpandAndGetPathsOfSubpathsFromFst(f, *ifst, &expected_paths, false));
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<Label>(
+        f, *ifst, &expected_paths, false));
     ExpandSubpathsWithSameLabelClass<StdArc, Label>(
         f, *ifst, &ofst, non_expandable_classes, expand_opts);
     KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
-    TestPathsOfSubpaths(
+    TestPathsOfSubpaths<StdArc, Label>(
         "TestExpandSubpathsWithSameLabelClassAllDifferent", *ifst, f, false,
         expected_paths, actual_paths);
     delete ifst;
@@ -277,11 +320,14 @@ void TestExpandSubpathsWithSameLabelClassAllDifferent() {
 void TestExpandSubpathsWithSameLabelClassRandom() {
   typedef StdArc::Label Label;
   ExpandSubpathsOptions expand_opts;
-  RandFstOptions rand_opts;
-  rand_opts.acyclic = true;
   std::set<int> non_expandable_classes;
 
   for (int r = 0; r < 100; ++r) {
+    RandFstOptions rand_opts;
+    rand_opts.acyclic = true;
+    rand_opts.n_syms = 2 + rand() % 10;
+    rand_opts.n_states = 5 + rand() % 20;
+    rand_opts.n_arcs = 10 + kaldi::Rand() % 40;
     VectorFst<StdArc> *ifst = RandFst<StdArc>(rand_opts), ofst;
     std::vector<std::tuple<float, std::string, std::string>>
         expected_paths, actual_paths;
@@ -289,36 +335,84 @@ void TestExpandSubpathsWithSameLabelClassRandom() {
 
     // use_input = true
     expand_opts.use_input = true;
-    KALDI_ASSERT(
-        ExpandAndGetPathsOfSubpathsFromFst(func, *ifst, &expected_paths, true));
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<int>(
+        func, *ifst, &expected_paths, true));
     ExpandSubpathsWithSameLabelClass<StdArc, int>(
         func, *ifst, &ofst, non_expandable_classes, expand_opts);
     KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
-    TestPathsOfSubpaths(
+    TestPathsOfSubpaths<StdArc, int>(
         "TestExpandSubpathsWithSameLabelClassRandom", *ifst, func, true,
         expected_paths, actual_paths);
 
 
     // use_input = false
     expand_opts.use_input = false;
-    KALDI_ASSERT(
-        ExpandAndGetPathsOfSubpathsFromFst(
-            func, *ifst, &expected_paths, false));
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<int>(
+        func, *ifst, &expected_paths, false));
     ExpandSubpathsWithSameLabelClass<StdArc, int>(
         func, *ifst, &ofst, non_expandable_classes, expand_opts);
     KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
-    TestPathsOfSubpaths(
+    TestPathsOfSubpaths<StdArc, int>(
         "TestExpandSubpathsWithSameLabelClassRandom", *ifst, func, false,
         expected_paths, actual_paths);
     delete ifst;
   }
 }
 
+void TestExpandSubpathsWithSameLabelClassNonExpandableRandom() {
+  typedef StdArc::Label Label;
+  ExpandSubpathsOptions expand_opts;
+
+  for (int r = 0; r < 100; ++r) {
+    RandFstOptions rand_opts;
+    rand_opts.acyclic = true;
+    rand_opts.n_syms = 2 + rand() % 10;
+    rand_opts.n_states = 5 + rand() % 20;
+    rand_opts.n_arcs = 10 + kaldi::Rand() % 40;
+
+    std::set<int> non_expandable_classes;
+    for (int n = 0; n < 3; ++n) {
+      non_expandable_classes.emplace(
+          (rand() % 2 == 0 ? -1 : +1) * (1 + rand() % 3)
+      );
+    }
+
+    VectorFst<StdArc> *ifst = RandFst<StdArc>(rand_opts), ofst;
+    std::vector<std::tuple<float, std::string, std::string>>
+        expected_paths, actual_paths;
+    RandomClass<Label> func;
+
+    // use_input = true
+    expand_opts.use_input = true;
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<int>(
+        func, *ifst, &expected_paths, true, non_expandable_classes));
+    ExpandSubpathsWithSameLabelClass<StdArc, int>(
+        func, *ifst, &ofst, non_expandable_classes, expand_opts);
+    KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
+    TestPathsOfSubpaths<StdArc, int>(
+        "TestExpandSubpathsWithSameLabelClassNonExpandableRandom", *ifst, func,
+        true, expected_paths, actual_paths, non_expandable_classes);
+
+
+    // use_input = false
+    expand_opts.use_input = false;
+    KALDI_ASSERT(ExpandAndGetPathsOfSubpathsFromFst<int>(
+        func, *ifst, &expected_paths, false, non_expandable_classes));
+    ExpandSubpathsWithSameLabelClass<StdArc, int>(
+        func, *ifst, &ofst, non_expandable_classes, expand_opts);
+    KALDI_ASSERT(GetPathsOfSubpathsFromExpandedFst(ofst, &actual_paths));
+    TestPathsOfSubpaths<StdArc, int>(
+        "TestExpandSubpathsWithSameLabelClassNonExpandableRandom", *ifst, func,
+        false, expected_paths, actual_paths, non_expandable_classes);
+    delete ifst;
+  }
+}
+
 int main(int argc, char **argv) {
-  InitFst("USAGE", &argc, &argv, true);
   srand(12345);
   TestExpandSubpathsWithSameLabelClassAllSame();
   TestExpandSubpathsWithSameLabelClassAllDifferent();
   TestExpandSubpathsWithSameLabelClassRandom();
+  TestExpandSubpathsWithSameLabelClassNonExpandableRandom();
   std::cerr << "Test OK" << std::endl;
 }
