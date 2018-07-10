@@ -15,22 +15,18 @@ void TestAddGroup() {
 
 void TestGetLabelGroup() {
   LabelGroup<int> label_group;
-  KALDI_ASSERT(label_group[0] == 0);
+  KALDI_ASSERT(label_group(0) == 0);
 
   label_group.AddGroup({1, 3, 5});
   label_group.AddGroup({2, 4, 6});
-  KALDI_ASSERT(label_group[0] == 0);
-  KALDI_ASSERT(label_group[1] == 1);
-  KALDI_ASSERT(label_group[3] == 1);
-  KALDI_ASSERT(label_group[5] == 1);
-  KALDI_ASSERT(label_group[2] == 2);
-  KALDI_ASSERT(label_group[4] == 2);
-  KALDI_ASSERT(label_group[6] == 2);
-  KALDI_ASSERT(label_group[99] == 3);
-
-  for (int label = 0; label < 10; ++label) {
-    KALDI_ASSERT(label_group[label] == label_group(label));
-  }
+  KALDI_ASSERT(label_group(0) == 0);
+  KALDI_ASSERT(label_group(1) == 1);
+  KALDI_ASSERT(label_group(3) == 1);
+  KALDI_ASSERT(label_group(5) == 1);
+  KALDI_ASSERT(label_group(2) == 2);
+  KALDI_ASSERT(label_group(4) == 2);
+  KALDI_ASSERT(label_group(6) == 2);
+  KALDI_ASSERT(label_group(99) == 3);
 }
 
 void TestCopyConstructor() {
@@ -43,7 +39,7 @@ void TestCopyConstructor() {
   }
 }
 
-void TestParseString() {
+void TestParseStringMultipleGroups() {
   std::vector<std::string> groups_str{
     "1 3 5 ; 2 4 6",
     "; 1 3 5 ; 2 4 6 ;",
@@ -52,7 +48,7 @@ void TestParseString() {
   };
   for (const auto& str : groups_str) {
     LabelGroup<int> label_group;
-    label_group.ParseString(str);
+    KALDI_ASSERT(label_group.ParseStringMultipleGroups(str));
     KALDI_ASSERT(label_group.NumGroups() == 3);
     KALDI_ASSERT(label_group(0) == 0);
     KALDI_ASSERT(label_group(1) == 1);
@@ -69,7 +65,7 @@ int main() {
   TestAddGroup();
   TestGetLabelGroup();
   TestCopyConstructor();
-  TestParseString();
+  TestParseStringMultipleGroups();
   std::cerr << "Test OK" << std::endl;
   return 0;
 }

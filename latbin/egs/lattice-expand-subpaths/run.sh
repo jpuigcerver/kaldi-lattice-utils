@@ -88,7 +88,7 @@ echo "";
   --symbol-table=iam.word.sym \
   --symbol-table-text=true \
   --verbose=2 \
-  "65 ; 66 ; 67 ; 68 ; 69 ; 70 ; 71 ; 74 ; 75 ; 76 ; 77 ; 78 ; 79" \
+  "65 66 67 68 69 70 71 74 75 76 77 78 79" \
   "ark:zcat iam.char.ark.gz|" \
   "ark:|gzip -9 > iam.word.ark.gz";
 echo "";

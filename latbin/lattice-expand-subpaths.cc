@@ -50,6 +50,7 @@ class ExpandLatticeTask {
                     const BaseFloat &acoustic_scale,
                     const BaseFloat &graph_scale,
                     const BaseFloat &beam,
+                    const bool with_word_delimiters,
                     const ExpandSubpathsOptions &expand_opts,
                     LW *lattice_writer,
                     SymbolTable *symbol_table)
@@ -59,6 +60,7 @@ class ExpandLatticeTask {
         acoustic_scale_(acoustic_scale),
         graph_scale_(graph_scale),
         beam_(beam),
+        with_word_delimiters_(with_word_delimiters),
         opts_(expand_opts),
         lattice_writer_(lattice_writer),
         symbol_table_(symbol_table) {}
@@ -116,8 +118,11 @@ class ExpandLatticeTask {
 
     // Expansion of subpaths formed by arcs of the same group of labels.
     // WARNING: THIS HAS AN EXPONENTIAL WORST CASE COST
+    std::set<Label> non_expandable_groups;
+    if (with_word_delimiters_) { non_expandable_groups.emplace(1); }
     const auto out_num_arcs =
-        ExpandSubpathsWithSameLabelClass<Arc, Label>(label_group_, &lat_, opts_);
+        ExpandSubpathsWithSameLabelClass<Arc, Label>(
+            label_group_, &lat_, non_expandable_groups, opts_);
     const auto out_num_states = lat_.NumStates();
     KALDI_LOG << "Lattice " << key_ << " expanded #states from "
               << orig_num_states << " to " << out_num_states
@@ -135,6 +140,7 @@ class ExpandLatticeTask {
   L lat_;
   LabelGroup<Label> label_group_;
   BaseFloat acoustic_scale_, graph_scale_, beam_;
+  bool with_word_delimiters_;
   ExpandSubpathsOptions opts_;
   LW *lattice_writer_;
   SymbolTable *symbol_table_;
@@ -193,9 +199,9 @@ int main(int argc, char **argv) {
         "--max-length option. Any path with a subpath longer than this "
         "will not be added to the output lattice.\n"
         "\n"
-        "Usage: lattice-expand-subpaths [options] label-groups "
+        "Usage: lattice-expand-subpaths [options] non-expandable-labels "
         "lat-rspecifier lat-wspecifier\n"
-        " e.g.: lattice-expand-subpaths \"3 ; 4 ; 5 6\" ark:1.lat ark:1-word.lat\n";
+        " e.g.: lattice-expand-subpaths \"3 4 5\" ark:1.lat ark:1-word.lat\n";
 
     ParseOptions po(usage);
     BaseFloat acoustic_scale = 1.0;
@@ -203,6 +209,7 @@ int main(int argc, char **argv) {
     BaseFloat beam = std::numeric_limits<BaseFloat>::infinity();
     int32 max_length = std::numeric_limits<int32>::max();
     std::string symbols_table_str = "";
+    std::string other_groups_str = "";
     bool symbols_table_text = false;
 
     po.Register("acoustic-scale", &acoustic_scale,
@@ -211,6 +218,10 @@ int main(int argc, char **argv) {
                 "Scaling factor for graph probabilities in the lattices.");
     po.Register("beam", &beam,
                 "Pruning beam (applied after lattice scaling).");
+    po.Register("other-groups", &other_groups_str,
+                "Specific labels to group as words. Groups are separated "
+                "with a semicolon, and labels within a group are separated "
+                "by spaces.");
     po.Register("symbol-table", &symbols_table_str,
                 "If given, all lattices will use the same symbol table which "
                 "will be written to this destination file. If not provided, "
@@ -236,9 +247,17 @@ int main(int argc, char **argv) {
     }
 
     LabelGroup<Label> label_group;
-    label_group.ParseString(po.GetArg(1));
-    const std::string lattice_in_str = po.GetArg(2);
-    const std::string lattice_out_str = po.GetArg(3);
+    // group of word delimiters (no subpath expansion)
+    if (!label_group.ParseStringSingleGroup(po.GetArg(1))) {
+      KALDI_ERR << "Invalid set of non-expandable labels: \""
+                << po.GetArg(1) << "\"";
+    }
+    const bool with_word_delimiters = label_group.NumGroups() == 2;
+    // others groups to be expanded (e.g. numbers)
+    if (!label_group.ParseStringMultipleGroups(other_groups_str)) {
+      KALDI_ERR << "Invalid sets of additional label groups: \""
+                << other_groups_str << "\"";
+    }
 
     fst::SymbolTable *symbol_table =
         symbols_table_str.empty()
@@ -247,8 +266,8 @@ int main(int argc, char **argv) {
 
     TaskSequencer<ExpandLatticeTask<CompactLattice, CompactLatticeWriter>>
         task_sequencer(task_sequencer_config);
-    SequentialCompactLatticeReader lattice_reader(lattice_in_str);
-    CompactLatticeWriter lattice_writer(lattice_out_str);
+    SequentialCompactLatticeReader lattice_reader(po.GetArg(2));
+    CompactLatticeWriter lattice_writer(po.GetArg(3));
     for (; !lattice_reader.Done(); lattice_reader.Next()) {
       task_sequencer.Run(
           new ExpandLatticeTask<CompactLattice, CompactLatticeWriter>(
@@ -258,6 +277,7 @@ int main(int argc, char **argv) {
               acoustic_scale,
               graph_scale,
               beam,
+              with_word_delimiters,
               ExpandSubpathsOptions(max_length, false),
               &lattice_writer,
               symbol_table));

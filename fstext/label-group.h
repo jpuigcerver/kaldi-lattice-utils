@@ -32,27 +32,32 @@ class LabelGroup {
     ++num_groups_;
   }
 
-  void ParseString(const std::string& multi_group_str) {
+  inline bool ParseStringSingleGroup(const std::string& group_str) {
+    std::vector<Label> tmp;
+    if (!kaldi::SplitStringToIntegers(group_str, " ", true, &tmp)) {
+      return false;
+    }
+    AddGroup(tmp);
+    return true;
+  }
+
+  inline bool ParseStringMultipleGroups(const std::string& multi_group_str) {
     std::vector<std::string> tmp;
     kaldi::SplitStringToVector(multi_group_str, ";", true, &tmp);
     for (const auto& group_str : tmp) {
-      std::vector<Label> tmp2;
-      kaldi::SplitStringToIntegers(group_str, " ", true, &tmp2);
-      AddGroup(tmp2);
+      if (!ParseStringSingleGroup(group_str))
+        return false;
     }
+    return true;
   }
 
-  Label operator[](const Label& label) const {
+  inline Label operator()(const Label& label) const {
     auto it = map_.find(label);
     if (it == map_.end()) {
       return num_groups_;
     } else {
       return it->second;
     }
-  }
-
-  Label operator()(const Label& label) const {
-    return operator[](label);
   }
 
   Label NumGroups() const {

@@ -49,13 +49,14 @@ struct ExpandSubpathsOptions {
 template<typename Arc, typename ClassType>
 size_t ExpandSubpathsWithSameLabelClass(
     const std::vector<ClassType> &state_class,
-    const Fst <Arc> &ifst,
-    MutableFst <Arc> *ofst,
+    const Fst<Arc> &ifst,
+    MutableFst<Arc> *ofst,
+    const std::set<ClassType> &non_expandable_classes = std::set<ClassType>(),
     const ExpandSubpathsOptions &opts = ExpandSubpathsOptions()) {
   typedef typename Arc::Label Label;
   typedef typename Arc::StateId StateId;
   typedef typename Arc::Weight Weight;
-  typedef std::tuple <
+  typedef std::tuple<
   StateId,               // Initial state of the subpath
   StateId,               // Final state of the subpath
   Weight,                // Weight of the subpath
@@ -72,7 +73,7 @@ size_t ExpandSubpathsWithSameLabelClass(
   if (ifst.Start() == kNoStateId) return 0;
 
   // Output FST has at most as many states as the input FST
-  for (StateIterator <Fst<Arc>> sit(ifst); !sit.Done(); sit.Next()) {
+  for (StateIterator<Fst<Arc>> sit(ifst); !sit.Done(); sit.Next()) {
     const auto s = ofst->AddState();
   }
   ofst->SetStart(ifst.Start());
@@ -87,7 +88,6 @@ size_t ExpandSubpathsWithSameLabelClass(
   if (!isyms->Member(0)) { isyms->AddSymbol("<eps>", 0); }
   if (!osyms->Member(0)) { osyms->AddSymbol("<eps>", 0); }
 
-
   KALDI_ASSERT(state_class.size() > ifst.Start());
   const auto c_eps = state_class[ifst.Start()];
 
@@ -95,13 +95,13 @@ size_t ExpandSubpathsWithSameLabelClass(
   S.emplace(ifst.Start(),
             ifst.Start(),
             Weight::One(),
-            std::vector<Label>{},
-            std::vector<Label>{});
+            std::vector < Label > {},
+            std::vector < Label > {});
 
-  std::unordered_set<
-      std::tuple<StateId, size_t>,
-      kaldi::hash<std::tuple<StateId, size_t>>
-  > expanded_from_arc;
+  std::unordered_set <
+      std::tuple < StateId, size_t >,
+      kaldi::hash < std::tuple < StateId, size_t >>
+      > expanded_from_arc;
 
   // Convert subpaths to individual arcs
   size_t num_arcs = 0;
@@ -117,12 +117,15 @@ size_t ExpandSubpathsWithSameLabelClass(
     const auto cp = state_class[s1]; // class of the subpath
 
     bool add_arc = false;
-    for (ArcIterator <Fst<Arc>> ait(ifst, s1); !ait.Done(); ait.Next()) {
+    for (ArcIterator<Fst<Arc>> ait(ifst, s1); !ait.Done(); ait.Next()) {
       const auto &arc = ait.Value();
       const auto &label = opts.use_input ? arc.ilabel : arc.olabel;
       KALDI_ASSERT(arc.nextstate < state_class.size());
-      const auto &cns = state_class[arc.nextstate];
-      if (cp == c_eps || cns == c_eps || cp == cns) {
+      const auto &cns =
+          state_class[arc.nextstate] != c_eps
+          ? state_class[arc.nextstate] : cp;
+      if ((cp == c_eps || cp == cns) &&
+          non_expandable_classes.count(cns) == 0) {
         if (arc.ilabel) ilbls.push_back(arc.ilabel);
         if (arc.olabel) olbls.push_back(arc.olabel);
         const auto curr_length = opts.use_input ? ilbls.size() : olbls.size();
@@ -137,7 +140,8 @@ size_t ExpandSubpathsWithSameLabelClass(
           std::vector<Label> new_ilbls, new_olbls;
           if (arc.ilabel) new_ilbls.push_back(arc.ilabel);
           if (arc.olabel) new_olbls.push_back(arc.olabel);
-          const auto curr_length = opts.use_input ? new_ilbls.size() : new_olbls.size();
+          const auto curr_length =
+              opts.use_input ? new_ilbls.size() : new_olbls.size();
           if (curr_length < opts.max_subpath_length) {
             S.emplace(s1, arc.nextstate, arc.weight, new_ilbls, new_olbls);
             expanded_from_arc.emplace(s1, ait.Position());
@@ -154,9 +158,12 @@ size_t ExpandSubpathsWithSameLabelClass(
     }
 
     if (ifst.Final(s1) != Weight::Zero()) {
-      auto ilabel = internal::GetOrAddLabelVectorToSymbolTable(ilbls, isyms);
-      auto olabel = internal::GetOrAddLabelVectorToSymbolTable(olbls, osyms);
-      ofst->AddArc(s0, Arc(ilabel, olabel, Times(w, ifst.Final(s1)), super_final));
+      auto ilabel =
+          internal::GetOrAddLabelVectorToSymbolTable(ilbls, isyms);
+      auto olabel =
+          internal::GetOrAddLabelVectorToSymbolTable(olbls, osyms);
+      ofst->AddArc(
+          s0, Arc(ilabel, olabel, Times(w, ifst.Final(s1)), super_final));
       ++num_arcs;
     }
   }
@@ -169,31 +176,37 @@ size_t ExpandSubpathsWithSameLabelClass(
 
 template<typename Arc, typename ClassType, typename F>
 size_t ExpandSubpathsWithSameLabelClass(
-    const F& f,
+    const F &f,
     const Fst<Arc> &ifst,
     MutableFst<Arc> *ofst,
+    const std::set<ClassType> &non_expandable_classes = std::set<ClassType>(),
     const ExpandSubpathsOptions &opts = ExpandSubpathsOptions()) {
   VectorFst<Arc> tmp;
   std::vector<ClassType> state_class;
   PrecedingSymbolsSameClassOptions opts2;
   opts2.use_input = opts.use_input;
   opts2.propagate_epsilon_class = true;
-  MakePrecedingSymbolsSameClass<Arc, ClassType, F>(f, ifst, &tmp, &state_class, opts2);
-  return ExpandSubpathsWithSameLabelClass(state_class, tmp, ofst, opts);
+  MakePrecedingSymbolsSameClass<Arc, ClassType, F>(
+      f, ifst, &tmp, &state_class, opts2);
+  return ExpandSubpathsWithSameLabelClass(
+      state_class, tmp, ofst, non_expandable_classes, opts);
 }
 
 template<typename Arc, typename ClassType, typename F>
 size_t ExpandSubpathsWithSameLabelClass(
-    const F& f,
+    const F &f,
     MutableFst<Arc> *mfst,
+    const std::set<ClassType> &non_expandable_classes = std::set<ClassType>(),
     const ExpandSubpathsOptions &opts = ExpandSubpathsOptions()) {
   VectorFst<Arc> tmp;
   std::vector<ClassType> state_class;
   PrecedingSymbolsSameClassOptions opts2;
   opts2.use_input = opts.use_input;
   opts2.propagate_epsilon_class = true;
-  MakePrecedingSymbolsSameClass<Arc, ClassType, F>(f, *mfst, &tmp, &state_class, opts2);
-  return ExpandSubpathsWithSameLabelClass<Arc, ClassType>(state_class, tmp, mfst, opts);
+  MakePrecedingSymbolsSameClass<Arc, ClassType, F>(
+      f, *mfst, &tmp, &state_class, opts2);
+  return ExpandSubpathsWithSameLabelClass<Arc, ClassType>(
+      state_class, tmp, mfst, non_expandable_classes, opts);
 }
 
 }  // namespace fst
