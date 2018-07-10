@@ -85,8 +85,8 @@ size_t ExpandSubpathsWithSameLabelClass(
   SymbolTable *osyms = ofst->MutableOutputSymbols();
   if (isyms == nullptr) { isyms = new SymbolTable; }
   if (osyms == nullptr) { osyms = new SymbolTable; }
-  if (!isyms->Member(0)) { isyms->AddSymbol("<eps>", 0); }
-  if (!osyms->Member(0)) { osyms->AddSymbol("<eps>", 0); }
+  if (!isyms->Member(0)) { isyms->AddSymbol("0", 0); }
+  if (!osyms->Member(0)) { osyms->AddSymbol("0", 0); }
 
   KALDI_ASSERT(state_class.size() > ifst.Start());
   const auto c_eps = state_class[ifst.Start()];
