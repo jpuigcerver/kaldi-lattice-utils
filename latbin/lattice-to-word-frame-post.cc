@@ -19,10 +19,12 @@
 #include <string>
 
 #include "base/kaldi-common.h"
-#include "util/common-utils.h"
+#include "base/timer.h"
 #include "fstext/kaldi-fst-io.h"
 #include "lat/kaldi-lattice.h"
 #include "lat/lattice-functions.h"
+#include "util/common-utils.h"
+
 
 int main(int argc, char *argv[]) {
   try {
@@ -62,9 +64,9 @@ int main(int argc, char *argv[]) {
     const auto lattice_scale = LatticeScale(graph_scale, acoustic_scale);
     const std::string lattice_rspecifier = po.GetArg(1);
     PosteriorWriter posterior_writer(po.GetArg(2));
-
+    size_t num_lattices = 0;
     for (SequentialCompactLatticeReader lattice_reader(lattice_rspecifier);
-         !lattice_reader.Done(); lattice_reader.Next()) {
+         !lattice_reader.Done(); lattice_reader.Next(), ++num_lattices) {
       const std::string lattice_key = lattice_reader.Key();
       CompactLattice clat = lattice_reader.Value();
       lattice_reader.FreeCurrent();
@@ -76,6 +78,7 @@ int main(int argc, char *argv[]) {
         AddWordInsPenToCompactLattice(insertion_penalty, &clat);
       // If needed, sort the compact lattice in topological order
       TopSortCompactLatticeIfNeeded(&clat);
+      Timer timer;
       // Compute the times of each state.
       // Assumption: The lattice must be aligned!
       std::vector<int32> times;
@@ -130,6 +133,8 @@ int main(int argc, char *argv[]) {
                     else return a.first < b.first;
                   });
       }
+      KALDI_LOG << "Lattice " << lattice_key << " posteriorgram computed in "
+                << timer.Elapsed() << " seconds.";
       // Write posteriors.
       posterior_writer.Write(lattice_key, posterior);
     }

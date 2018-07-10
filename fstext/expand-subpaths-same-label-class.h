@@ -3,14 +3,14 @@
 
 #include <sstream>
 #include <stack>
+#include <unordered_set>
 #include <vector>
 
 #include "fst/fstlib.h"
 #include "fst/symbol-table.h"
 #include "fstext/fstext-utils2.h"
 #include "fstext/make-preceding-symbols-same-class.h"
-
-#include "fst/script/print.h"  // TODO: DELETE
+#include "util/tuple-hash.h"
 
 namespace fst {
 
@@ -98,7 +98,10 @@ size_t ExpandSubpathsWithSameLabelClass(
             std::vector<Label>{},
             std::vector<Label>{});
 
-  std::set< std::tuple<StateId, size_t> > expanded_from_arc;
+  std::unordered_set<
+      std::tuple<StateId, size_t>,
+      kaldi::hash<std::tuple<StateId, size_t>>
+  > expanded_from_arc;
 
   // Convert subpaths to individual arcs
   size_t num_arcs = 0;

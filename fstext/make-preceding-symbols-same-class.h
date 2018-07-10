@@ -1,8 +1,13 @@
 #ifndef KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_SYMBOLS_SAME_CLASS_H_
 #define KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_SYMBOLS_SAME_CLASS_H_
 
+#include <queue>
+#include <tuple>
+#include <unordered_map>
+
 #include "base/kaldi-error.h"
 #include "fst/fstlib.h"
+#include "util/tuple-hash.h"
 
 namespace fst {
 
@@ -33,7 +38,11 @@ void MakePrecedingSymbolsSameClass(
     return;
   }
 
-  std::map< std::tuple<StateId, ClassType>, StateId > state_map;
+  std::unordered_map<
+      std::tuple<StateId, ClassType>,
+      StateId,
+      kaldi::hash<std::tuple<StateId, ClassType>>
+  > state_map;
   std::queue< std::tuple<StateId, ClassType> > Q;
   const auto c_eps = f(0);
   Q.emplace(ifst.Start(), c_eps);
