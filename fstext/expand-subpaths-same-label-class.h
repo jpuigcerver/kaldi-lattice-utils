@@ -35,12 +35,12 @@ Label GetOrAddLabelVectorToSymbolTable(const std::vector <Label> &labels,
 template<typename Label, typename Weight>
 struct Path {
   Weight weight;
-  std::vector<Label> ilabels;
-  std::vector<Label> olabels;
+  std::vector <Label> ilabels;
+  std::vector <Label> olabels;
 
   Path() : weight(Weight::One()), ilabels{}, olabels{} {}
 
-  Path(const Path& other)
+  Path(const Path &other)
       : weight(other.weight), ilabels(other.ilabels), olabels(other.olabels) {}
 
   explicit Path(const Weight &w) : weight(w), ilabels{}, olabels{} {}
@@ -255,6 +255,10 @@ size_t ExpandSubpathsWithSameLabelClass(
   typedef typename Arc::Label Label;
   typedef typename Arc::StateId StateId;
   typedef typename Arc::Weight Weight;
+  KALDI_ASSERT(ofst != nullptr);
+  if (ifst.Properties(kAcyclic, true) != kAcyclic) {
+    KALDI_ERR << "Input FST must be acyclic!";
+  }
 
   ofst->DeleteStates();
   if (ifst.Start() == kNoStateId) return 0;
@@ -275,7 +279,7 @@ size_t ExpandSubpathsWithSameLabelClass(
       StateId,
       kaldi::hash < std::tuple < StateId, ClassType >> > M;
   M[std::make_tuple(ifst.Start(), c_eps)] = ofst->Start();
-  std::vector<std::tuple<StateId, ClassType>> IM{
+  std::vector <std::tuple<StateId, ClassType>> IM{
       std::make_tuple(ifst.Start(), c_eps)
   };
 
@@ -285,7 +289,6 @@ size_t ExpandSubpathsWithSameLabelClass(
   std::unordered_set <
       std::tuple < StateId, size_t >,
       kaldi::hash < std::tuple < StateId, size_t >> > X;
-  //X.emplace(ifst.Start(), c_eps);
 
   size_t num_arcs = 0;
   while (!S.empty()) {
@@ -294,12 +297,6 @@ size_t ExpandSubpathsWithSameLabelClass(
     const auto c = std::get<2>(S.top());
     const auto p = std::get<3>(S.top());
     S.pop();
-
-    /*
-    KALDI_LOG << "POP: " << i << " " << j << " " << c << " " << p.weight
-              << " \"" << LabelVectorToString(p.ilabels, nullptr, kStringSeparator) << "\""
-              << " \"" << LabelVectorToString(p.olabels, nullptr, kStringSeparator) << "\"";
-              */
 
     bool add_arc = false;
     for (ArcIterator <Fst<Arc>> ait(ifst, j); !ait.Done(); ait.Next()) {
@@ -311,14 +308,11 @@ size_t ExpandSubpathsWithSameLabelClass(
             Path<Label, Weight>(p, arc.weight, arc.ilabel, arc.olabel);
         if (new_p.Length(opts.use_input) <= opts.max_subpath_length) {
           S.emplace(i, arc.nextstate, c_arc, new_p);
-          /*KALDI_LOG << "PUSH1: " << i << " " << arc.nextstate << " " << c_arc
-                    << " " << new_p.weight
-                    << " \"" << LabelVectorToString(new_p.ilabels, nullptr, kStringSeparator) << "\""
-                    << " \"" << LabelVectorToString(new_p.olabels, nullptr, kStringSeparator) << "\""; */
         }
       } else {
         add_arc = true;
-        const auto new_p = Path<Label, Weight>(arc.weight, arc.ilabel, arc.olabel);
+        const auto
+            new_p = Path<Label, Weight>(arc.weight, arc.ilabel, arc.olabel);
         if (new_p.Length(opts.use_input) <= opts.max_subpath_length) {
           const auto t = std::make_tuple(j, c);
           auto it = M.find(t);
@@ -329,16 +323,13 @@ size_t ExpandSubpathsWithSameLabelClass(
           if (X.find(std::make_tuple(it->second, ait.Position())) == X.end()) {
             S.emplace(it->second, arc.nextstate, c_arc, new_p);
             X.emplace(it->second, ait.Position());
-            /*KALDI_LOG << "PUSH2: " << it->second << " " << arc.nextstate << " " << c_arc
-                      << " " << new_p.weight
-                      << " \"" << LabelVectorToString(new_p.ilabels, nullptr, kStringSeparator) << "\""
-                      << " \"" << LabelVectorToString(new_p.olabels, nullptr, kStringSeparator) << "\""; */
           }
         }
       }
     }
 
-    if (j != std::get<0>(IM[i]) && (ifst.Final(j) != Weight::Zero() || add_arc)) {
+    if (j != std::get<0>(IM[i])
+        && (ifst.Final(j) != Weight::Zero() || add_arc)) {
       const auto t = std::make_tuple(j, c);
       auto it = M.find(t);
       if (it == M.end()) {
@@ -351,12 +342,6 @@ size_t ExpandSubpathsWithSameLabelClass(
           GetOrAddLabelVectorToSymbolTable(p.olabels, osyms);
       ofst->AddArc(i, Arc(ilabel, olabel, p.weight, it->second));
       ++num_arcs;
-      /*KALDI_LOG << "OUTPUT ARC: "
-                << i << " (" << std::get<0>(IM[i]) << ", " << std::get<1>(IM[i]) << ") -> "
-                << it->second << " (" << std::get<0>(IM[it->second]) << ", " << std::get<1>(IM[it->second]) << ") ; "
-                << " " <<  p.weight
-                << " \"" << LabelVectorToString(p.ilabels, nullptr, kStringSeparator) << "\""
-                << " \"" << LabelVectorToString(p.olabels, nullptr, kStringSeparator) << "\""; */
     }
   }
 
@@ -382,6 +367,118 @@ size_t ExpandSubpathsWithSameLabelClass(
   VectorFst <Arc> tmp(*mfst);
   return ExpandSubpathsWithSameLabelClass<Arc, ClassType>(
       f, tmp, mfst, non_expandable_classes, opts);
+}
+
+template<typename Arc>
+size_t ExpandSubpathsBetweenDelimiters(
+    const std::set<typename Arc::Label> &delimiters,
+    const Fst <Arc> &ifst,
+    MutableFst <Arc> *ofst,
+    const ExpandSubpathsOptions &opts = ExpandSubpathsOptions()) {
+  typedef typename Arc::Label Label;
+  typedef typename Arc::StateId StateId;
+  typedef typename Arc::Weight Weight;
+  KALDI_ASSERT(ofst != nullptr);
+  if (ifst.Properties(kAcyclic, true) != kAcyclic) {
+    KALDI_ERR << "Input FST must be acyclic!";
+  }
+
+  ofst->DeleteStates();
+  if (ifst.Start() == kNoStateId) return 0;
+
+  // Get (or create) symbols tables for the output fsts
+  SymbolTable *isyms = ofst->MutableInputSymbols();
+  SymbolTable *osyms = ofst->MutableOutputSymbols();
+  if (isyms == nullptr) { isyms = new SymbolTable; }
+  if (osyms == nullptr) { osyms = new SymbolTable; }
+  if (!isyms->Member(0)) { isyms->AddSymbol("0", 0); }
+  if (!osyms->Member(0)) { osyms->AddSymbol("0", 0); }
+
+  // Output fst has, at most, as many states as the input fst.
+  ofst->DeleteStates();
+  for (StateIterator<Fst> sit(ifst); !sit.Done(); sit.Next()) {
+    ofst->AddState();
+  }
+  ofst->SetStart(ifst.Start());
+
+  // Add start state to the stack, new words start from these states.
+  std::unordered_set <StateId> add_to_initial_stack;
+  add_to_initial_stack.insert(ifst.Start());
+
+  // Traverse all arcs from the fst to detect where new words may start.
+  // We will add these states to the stack, and keep the arcs with any of the
+  // word delimiters, in order to keep these as separate words.
+  for (StateIterator<Fst> sit(ifst); !sit.Done(); sit.Next()) {
+    const StateId s = sit.Value();
+    ofst->SetFinal(s, ifst.Final(s));
+
+    for (ArcIterator <Fst> ait(ifst, s); !ait.Done(); ait.Next()) {
+      const Arc &arc = ait.Value();
+      const Label &match_label = match_input ? arc.ilabel : arc.olabel;
+      // State arc.nextstate is the start of a new word
+      if (delimiters.count(match_label) != 0) {
+        // Get ilabel and olabel corresponding to this arc in the output fst
+        std::vector <Label> ilabels, olabels;
+        if (arc.ilabel != 0) ilabels.push_back(arc.ilabel);
+        if (arc.olabel != 0) olabels.push_back(arc.olabel);
+        const auto ilabel = GetOrAddLabelVectorToSymbolTable(ilabels, isyms);
+        const auto olabel = GetOrAddLabelVectorToSymbolTable(olabels, osyms);
+        // Add arc to the output fst and add it to the stack
+        ofst->AddArc(s, Arc(ilabel, olabel, arc.weight, arc.nextstate));
+        add_to_initial_stack.insert(arc.nextstate);
+      }
+    }
+  }
+
+  // Initialize stack
+  std::stack< std::tuple<StateId, StateId, Path<Label, Weight> > S;
+  for (StateId s : add_to_initial_stack) {
+    S.emplace(s, s, Path<Label, Weight>());
+  }
+
+  while (!S.empty()) {
+    const auto i = std::get<0>(S.top());
+    const auto j = std::get<1>(S.top());
+    const auto p = std::get<2>(S.top());
+    S.pop();
+
+    bool add_arc = false;
+    for (ArcIterator<Fst> ait(ifst, j); !ait.Done(); ait.Next()) {
+      const Arc& arc = ait.Value();
+      const Label label = opts.use_input ? arc.ilabel : arc.olabel;
+      if (delimiters.count(label) == 0) {
+        // Continue expanding path from (i, arc.nextstate)
+        const auto new_p = Path<Label, Weight>(p, arc.weight, arc.ilabel, arc.olabel);
+        if (new_p.Length(opts.use_input) <= opts.max_subpath_length) {
+          S.emplace(i, arc.nextstate, new_p);
+        }
+      } else {
+        add_arc = true;
+      }
+    }
+
+    // If j is final or has any output arc with a delimiter symbol,
+    // add arc from i to j to the output fst, with the cumulative weight
+    // and input/output labels.
+    if (i != j && (add_arc || ifst.Final(j) != Weight::Zero())) {
+      const auto ilabel = GetOrAddLabelVectorToSymbolTable(p.ilabels, isyms);
+      const auto olabel = GetOrAddLabelVectorToSymbolTable(p.olabels, osyms);
+      ofst->AddArc(i, Arc(ilabel, olabel, p.weight, j));
+    }
+  }
+
+  // Remove unnecessary states and arcs
+  Connect(ofst);
+  return NumArcs(*ofst);
+}
+
+template<typename Arc>
+size_t ExpandSubpathsBetweenDelimiters(
+    const std::set<typename Arc::Label> &delimiters,
+    MutableFst <Arc> *mfst,
+    const ExpandSubpathsOptions &opts = ExpandSubpathsOptions()) {
+  VectorFst<Arc> tmp(*mfst);
+  return ExpandSubpathsBetweenDelimiters(delimiters, tmp, mfst, opts);
 }
 
 }  // namespace fst

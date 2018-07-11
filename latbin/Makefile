@@ -6,6 +6,7 @@ BINFILES = \
 	lattice-best-path2 \
 	lattice-expand-subpaths \
 	lattice-info \
+	lattice-make-preceding-symbols-same-class \
 	lattice-prune-dyn-beam \
 	lattice-remove-ctc-blank \
 	lattice-restrict-length \

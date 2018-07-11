@@ -281,9 +281,6 @@ int main(int argc, char **argv) {
               ExpandSubpathsOptions(max_length, false),
               &lattice_writer,
               symbol_table));
-
-      CompactLattice clat = lattice_reader.Value();
-      lattice_reader.FreeCurrent();
     }
     task_sequencer.Wait();
 

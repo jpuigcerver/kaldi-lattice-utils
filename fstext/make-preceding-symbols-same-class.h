@@ -24,7 +24,8 @@ void MakePrecedingSymbolsSameClass(
     const Fst<Arc>& ifst,
     MutableFst<Arc>* ofst,
     std::vector<ClassType>* state_class,
-    const PrecedingSymbolsSameClassOptions& opts = PrecedingSymbolsSameClassOptions()) {
+    const PrecedingSymbolsSameClassOptions& opts =
+    PrecedingSymbolsSameClassOptions()) {
   typedef typename Arc::StateId StateId;
   typedef typename Arc::Label Label;
   typedef typename Arc::Weight Weight;
@@ -93,6 +94,17 @@ void MakePrecedingSymbolsSameClass(
 
   auto outprops = ifst.Properties(kFstProperties, false);
   ofst->SetProperties(outprops, kFstProperties);
+}
+
+template <typename Arc, typename ClassType, typename F>
+void MakePrecedingSymbolsSameClass(
+    const F& f,
+    MutableFst<Arc>* mfst,
+    std::vector<ClassType>* state_class,
+    const PrecedingSymbolsSameClassOptions& opts =
+    PrecedingSymbolsSameClassOptions()) {
+  VectorFst<Arc> tmp(*mfst);
+  MakePrecedingSymbolsSameClass(f, tmp, mfst, state_class, opts);
 }
 
 }  // namespace fst
