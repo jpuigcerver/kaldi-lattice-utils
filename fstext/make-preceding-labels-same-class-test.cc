@@ -1,6 +1,6 @@
 #undef NDEBUG
 
-#include "fstext/make-preceding-symbols-same-class.h"
+#include "fstext/make-preceding-labels-same-class.h"
 #include "fstext/rand-fst.h"
 #include "fst/script/print.h"
 #include "fstext/fstext-utils.h"
@@ -28,11 +28,11 @@ inline bool CheckStateClass(
 }
 
 template <typename Arc, typename ClassType, typename F>
-bool CheckPrecedingSymbolsAreSameClass(
+bool CheckPrecedingLabelsAreSameClass(
     const Fst<Arc>& ifst,
     const F &f,
     const std::vector<ClassType>& state_class,
-    const PrecedingSymbolsSameClassOptions& opts = PrecedingSymbolsSameClassOptions()) {
+    const PrecedingLabelsSameClassOptions& opts = PrecedingLabelsSameClassOptions()) {
   if (ifst.Start() == kNoStateId) { return state_class.empty(); }
 
   const auto c_eps = f(0);
@@ -58,8 +58,8 @@ bool CheckPrecedingSymbolsAreSameClass(
 }
 
 template <typename Arc>
-void TestMakePrecedingSymbolsSameClassAllEqual() {
-  // Test MakePrecedingSymbolsSameClass when all input labels belong to the
+void TestMakePrecedingLabelsSameClassAllEqual() {
+  // Test MakePrecedingLabelsSameClass when all input labels belong to the
   // same class. In this case, the output FST is equal to the input FST,
   // except the numbering of the states.
   // Note: propagate_epsilon_class does not have any effect here
@@ -70,17 +70,17 @@ void TestMakePrecedingSymbolsSameClassAllEqual() {
     RenumberStatesFst(ifst);
 
     std::vector<bool> state_class;
-    PrecedingSymbolsSameClassOptions opts;
+    PrecedingLabelsSameClassOptions opts;
 
     // use_input = false, propagate_epsilon_class = false
-    MakePrecedingSymbolsSameClass([](Label label) { return true; }, *ifst, &ofst, &state_class, opts);
+    MakePrecedingLabelsSameClass([](Label label) { return true; }, *ifst, &ofst, &state_class, opts);
     RenumberStatesFst(&ofst);
     KALDI_ASSERT(Equal(*ifst, ofst));
     KALDI_ASSERT(state_class == std::vector<bool>(ofst.NumStates(), true));
 
     // use_input = true, propagate_epsilon_class = false
     opts.use_input = true;
-    MakePrecedingSymbolsSameClass([](Label label) { return true; }, *ifst, &ofst, &state_class, opts);
+    MakePrecedingLabelsSameClass([](Label label) { return true; }, *ifst, &ofst, &state_class, opts);
     RenumberStatesFst(&ofst);
     KALDI_ASSERT(Equal(*ifst, ofst));
     KALDI_ASSERT(state_class == std::vector<bool>(ofst.NumStates(), true));
@@ -90,8 +90,8 @@ void TestMakePrecedingSymbolsSameClassAllEqual() {
 }
 
 template <typename Arc>
-void TestMakePrecedingSymbolsSameClassAllDifferent() {
-  // Test MakePrecedingSymbolsSameClass when all input labels belong to
+void TestMakePrecedingLabelsSameClassAllDifferent() {
+  // Test MakePrecedingLabelsSameClass when all input labels belong to
   // different classes.
   typedef typename Arc::Label Label;
   RandFstOptions rand_opts;
@@ -101,49 +101,49 @@ void TestMakePrecedingSymbolsSameClassAllDifferent() {
     VectorFst<Arc> *ifst = RandFst<Arc>(rand_opts), ofst;
 
     std::vector<Label> state_class;
-    PrecedingSymbolsSameClassOptions opts;
+    PrecedingLabelsSameClassOptions opts;
 
     // use_input = false, propagate_epsilon_class = false
     opts.use_input = false; opts.propagate_epsilon_class = false;
-    MakePrecedingSymbolsSameClass(
+    MakePrecedingLabelsSameClass(
         [](Label label) { return label; }, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
-    KALDI_ASSERT(CheckPrecedingSymbolsAreSameClass(
+    KALDI_ASSERT(CheckPrecedingLabelsAreSameClass(
         ofst, [](Label label) { return label; }, state_class, opts));
 
 
     // use_input = true, propagate_epsilon_class = false
     opts.use_input = true; opts.propagate_epsilon_class = false;
-    MakePrecedingSymbolsSameClass(
+    MakePrecedingLabelsSameClass(
         [](Label label) { return label; }, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
-    KALDI_ASSERT(CheckPrecedingSymbolsAreSameClass(
+    KALDI_ASSERT(CheckPrecedingLabelsAreSameClass(
         ofst, [](Label label) { return label; }, state_class, opts));
 
     // use_input = false, propagate_epsilon_class = true
     opts.use_input = false; opts.propagate_epsilon_class = true;
-    MakePrecedingSymbolsSameClass(
+    MakePrecedingLabelsSameClass(
         [](Label label) { return label; }, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
-    KALDI_ASSERT(CheckPrecedingSymbolsAreSameClass(
+    KALDI_ASSERT(CheckPrecedingLabelsAreSameClass(
         ofst, [](Label label) { return label; }, state_class, opts));
 
     // use_input = true, propagate_epsilon_class = true
     opts.use_input = true; opts.propagate_epsilon_class = true;
-    MakePrecedingSymbolsSameClass(
+    MakePrecedingLabelsSameClass(
         [](Label label) { return label; }, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
-    KALDI_ASSERT(CheckPrecedingSymbolsAreSameClass(
+    KALDI_ASSERT(CheckPrecedingLabelsAreSameClass(
         ofst, [](Label label) { return label; }, state_class, opts));
   }
 }
 
 template <typename Arc>
-void TestMakePrecedingSymbolsSameClassRandom() {
+void TestMakePrecedingLabelsSameClassRandom() {
   typedef typename Arc::Label Label;
   RandFstOptions rand_opts;
   rand_opts.acyclic = true;  // We need acyclic = false to compare ALL paths
@@ -153,29 +153,29 @@ void TestMakePrecedingSymbolsSameClassRandom() {
     RandomClass<Label> func;
 
     std::vector<int> state_class;
-    PrecedingSymbolsSameClassOptions opts;
+    PrecedingLabelsSameClassOptions opts;
 
     // use_input = false, propagate_epsilon_class = false
     opts.use_input = false; opts.propagate_epsilon_class = false;
-    MakePrecedingSymbolsSameClass(func, *ifst, &ofst, &state_class, opts);
+    MakePrecedingLabelsSameClass(func, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
 
     // use_input = false, propagate_epsilon_class = false
     opts.use_input = false; opts.propagate_epsilon_class = true;
-    MakePrecedingSymbolsSameClass(func, *ifst, &ofst, &state_class, opts);
+    MakePrecedingLabelsSameClass(func, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
 
     // use_input = true, propagate_epsilon_class = false
     opts.use_input = true; opts.propagate_epsilon_class = false;
-    MakePrecedingSymbolsSameClass(func, *ifst, &ofst, &state_class, opts);
+    MakePrecedingLabelsSameClass(func, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
 
     // use_input = true, propagate_epsilon_class = true
     opts.use_input = true; opts.propagate_epsilon_class = true;
-    MakePrecedingSymbolsSameClass(func, *ifst, &ofst, &state_class, opts);
+    MakePrecedingLabelsSameClass(func, *ifst, &ofst, &state_class, opts);
     KALDI_ASSERT(AreBestPathsEqual(*ifst, ofst));
     KALDI_ASSERT(state_class.size() == ofst.NumStates());
   }
@@ -183,9 +183,9 @@ void TestMakePrecedingSymbolsSameClassRandom() {
 
 int main() {
   srand(12345);
-  TestMakePrecedingSymbolsSameClassAllEqual<StdArc>();
-  TestMakePrecedingSymbolsSameClassAllDifferent<StdArc>();
-  TestMakePrecedingSymbolsSameClassRandom<StdArc>();
+  TestMakePrecedingLabelsSameClassAllEqual<StdArc>();
+  TestMakePrecedingLabelsSameClassAllDifferent<StdArc>();
+  TestMakePrecedingLabelsSameClassRandom<StdArc>();
   std::cerr << "Test OK" << std::endl;
   return 0;
 }

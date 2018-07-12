@@ -2,9 +2,10 @@ all:
 
 include ../kaldi.mk
 
-TESTFILES = expand-subpaths-same-label-class-test \
-	    label-group-test \
-            make-preceding-symbols-same-class-test
+TESTFILES = expand-subpaths-between-delimiters-test \
+            expand-subpaths-labels-same-class-test \
+            label-group-test \
+            make-preceding-labels-same-class-test
 
 ADDLIBS = \
 	$(KALDI_ROOT)/src/fstext/kaldi-fstext.a \

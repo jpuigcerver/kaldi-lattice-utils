@@ -11,6 +11,7 @@ namespace fst {
 template <typename Label>
 class LabelGroup {
  public:
+  typedef Label Result;
   LabelGroup() {
     map_[0] = 0;
     num_groups_ = 1;
@@ -20,6 +21,7 @@ class LabelGroup {
       : map_(other.map_), num_groups_(other.num_groups_) {}
 
   void AddGroup(const std::vector<Label>& labels) {
+    if (labels.empty()) return;
     for (const auto& label : labels) {
       auto r = map_.emplace(label, num_groups_);
       if (!r.second) {
@@ -34,10 +36,15 @@ class LabelGroup {
 
   inline bool ParseStringSingleGroup(const std::string& group_str) {
     std::vector<Label> tmp;
-    if (!kaldi::SplitStringToIntegers(group_str, " ", true, &tmp)) {
+    return ParseStringSingleGroup(group_str, &tmp);
+  }
+
+  inline bool ParseStringSingleGroup(
+      const std::string& group_str, std::vector<Label>* group) {
+    if (!kaldi::SplitStringToIntegers(group_str, " ", true, group)) {
       return false;
     }
-    AddGroup(tmp);
+    AddGroup(*group);
     return true;
   }
 

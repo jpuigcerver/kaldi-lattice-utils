@@ -315,7 +315,12 @@ void PrintFstInfo(const std::string &rspecifier) {
               << fst_info.NumCc() << std::endl;
     std::cout << std::setw(50) << "# of strongly conn components"
               << fst_info.NumScc() << std::endl;
-    std::cout << std::setw(50) << "# of paths" << num_paths << std::endl;
+    if (num_paths > std::pow(2, std::numeric_limits<long double>::digits)) {
+      std::cout << std::setw(50) << "# of paths" << num_paths << std::endl;
+    } else {
+      std::cout << std::setw(50) << "# of paths"
+                << static_cast<uint64_t>(num_paths) << std::endl;
+    }
     std::cout << std::setw(50) << "input label multiplicity"
               << fst_info.InputLabelMultiplicity() << std::endl;
     std::cout << std::setw(50) << "output label multiplicity"

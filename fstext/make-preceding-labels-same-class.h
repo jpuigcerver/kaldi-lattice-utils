@@ -1,5 +1,5 @@
-#ifndef KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_SYMBOLS_SAME_CLASS_H_
-#define KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_SYMBOLS_SAME_CLASS_H_
+#ifndef KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_LABELS_SAME_CLASS_H_
+#define KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_LABELS_SAME_CLASS_H_
 
 #include <queue>
 #include <tuple>
@@ -11,21 +11,21 @@
 
 namespace fst {
 
-struct PrecedingSymbolsSameClassOptions {
+struct PrecedingLabelsSameClassOptions {
   bool use_input;
   bool propagate_epsilon_class;
-  PrecedingSymbolsSameClassOptions()
+  PrecedingLabelsSameClassOptions()
       : use_input(false), propagate_epsilon_class(false) {}
 };
 
 template <typename Arc, typename ClassType, typename F>
-void MakePrecedingSymbolsSameClass(
+void MakePrecedingLabelsSameClass(
     const F& f,
     const Fst<Arc>& ifst,
     MutableFst<Arc>* ofst,
     std::vector<ClassType>* state_class,
-    const PrecedingSymbolsSameClassOptions& opts =
-    PrecedingSymbolsSameClassOptions()) {
+    const PrecedingLabelsSameClassOptions& opts =
+    PrecedingLabelsSameClassOptions()) {
   typedef typename Arc::StateId StateId;
   typedef typename Arc::Label Label;
   typedef typename Arc::Weight Weight;
@@ -97,16 +97,16 @@ void MakePrecedingSymbolsSameClass(
 }
 
 template <typename Arc, typename ClassType, typename F>
-void MakePrecedingSymbolsSameClass(
+void MakePrecedingLabelsSameClass(
     const F& f,
     MutableFst<Arc>* mfst,
     std::vector<ClassType>* state_class,
-    const PrecedingSymbolsSameClassOptions& opts =
-    PrecedingSymbolsSameClassOptions()) {
+    const PrecedingLabelsSameClassOptions& opts =
+    PrecedingLabelsSameClassOptions()) {
   VectorFst<Arc> tmp(*mfst);
-  MakePrecedingSymbolsSameClass(f, tmp, mfst, state_class, opts);
+  MakePrecedingLabelsSameClass(f, tmp, mfst, state_class, opts);
 }
 
 }  // namespace fst
 
-#endif  // KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_SYMBOLS_SAME_CLASS_H_
+#endif  // KALDI_LATTICE_UTILS_FSTEXT_MAKE_PRECEDING_LABELS_SAME_CLASS_H_

@@ -22,7 +22,8 @@
 
 #include "base/kaldi-common.h"
 #include "base/timer.h"
-#include "fstext/expand-subpaths-same-label-class.h"
+#include "fstext/expand-subpaths-between-delimiters.h"
+#include "fstext/expand-subpaths-labels-same-class.h"
 #include "fstext/fstext-utils.h"
 #include "fstext/kaldi-fst-io.h"
 #include "fstext/label-group.h"
@@ -34,7 +35,8 @@
 namespace kaldi {
 
 using fst::ExpandSubpathsOptions;
-using fst::ExpandSubpathsWithSameLabelClass;
+using fst::ExpandSubpathsBetweenDelimiters;
+using fst::ExpandSubpathsLabelsSameClass;
 using fst::LabelGroup;
 using fst::SymbolTable;
 
@@ -46,24 +48,26 @@ class ExpandLatticeTask {
 
   ExpandLatticeTask(const std::string &key,
                     const L &lat,
+                    const std::vector<Label>& delimiters,
                     const LabelGroup<Label> &label_group,
                     const BaseFloat &acoustic_scale,
                     const BaseFloat &graph_scale,
                     const BaseFloat &beam,
-                    const bool with_word_delimiters,
                     const ExpandSubpathsOptions &expand_opts,
                     LW *lattice_writer,
-                    SymbolTable *symbol_table)
+                    SymbolTable *symbol_table,
+                    bool force_general_algo = false)
       : key_(key),
         lat_(lat),
+        delimiters_(delimiters.begin(), delimiters.end()),
         label_group_(label_group),
         acoustic_scale_(acoustic_scale),
         graph_scale_(graph_scale),
         beam_(beam),
-        with_word_delimiters_(with_word_delimiters),
         opts_(expand_opts),
         lattice_writer_(lattice_writer),
-        symbol_table_(symbol_table) {}
+        symbol_table_(symbol_table),
+        force_general_algo_(force_general_algo) {}
 
   ~ExpandLatticeTask() {
     // Note: Destructor is executed sequentially
@@ -118,15 +122,26 @@ class ExpandLatticeTask {
 
     // Expansion of subpaths formed by arcs of the same group of labels.
     // WARNING: THIS HAS AN EXPONENTIAL WORST CASE COST
-    std::set<Label> non_expandable_groups;
-    if (with_word_delimiters_) { non_expandable_groups.emplace(1); }
-    const auto out_num_arcs =
-        ExpandSubpathsWithSameLabelClass<Arc, Label>(
-            label_group_, &lat_, non_expandable_groups, opts_);
-    const auto out_num_states = lat_.NumStates();
-    KALDI_LOG << "Lattice " << key_ << " expanded #states from "
-              << orig_num_states << " to " << out_num_states
-              << " and #arcs from " << orig_num_arcs << " to " << out_num_arcs
+    if (!force_general_algo_ &&
+        label_group_.NumGroups() == 2 && !delimiters_.empty()) {
+      // If only delimiters are used, most lattices admit a more efficient
+      // algorithm.
+      ExpandSubpathsBetweenDelimiters<Arc>(delimiters_, &lat_, opts_);
+    } else {
+      // General algorithm
+      std::set<Label> delimiters_class;
+      if (!delimiters_.empty()) {
+        delimiters_class.emplace(*delimiters_.begin());
+      }
+      ExpandSubpathsLabelsSameClass<Arc, Label>(
+          label_group_, &lat_, delimiters_class, opts_);
+    }
+
+    KALDI_LOG << "Lattice " << key_
+              << " expanded #states from " << orig_num_states
+              << " to " << lat_.NumStates()
+              << " and #arcs from " << orig_num_arcs
+              << " to " << NumArcs(lat_)
               << " in " << timer.Elapsed() << " seconds.";
     KALDI_VLOG(1) << "Lattice " << key_
                   << ": input subpath symbols = "
@@ -138,12 +153,13 @@ class ExpandLatticeTask {
  protected:
   const std::string key_;
   L lat_;
+  std::set<Label> delimiters_;
   LabelGroup<Label> label_group_;
   BaseFloat acoustic_scale_, graph_scale_, beam_;
-  bool with_word_delimiters_;
   ExpandSubpathsOptions opts_;
   LW *lattice_writer_;
   SymbolTable *symbol_table_;
+  bool force_general_algo_;
 };
 
 }  // namespace kaldi
@@ -180,13 +196,13 @@ int main(int argc, char **argv) {
         "Expand subpaths in lattices where all labels in the path have "
         "the same \"class\".\n"
         "\n"
-        "This is useful, for instance, to convert character lattice into "
+        "This is useful, for instance, to convert character lattices into "
         "word lattices, by expanding the subpaths between \"whitespaces\" "
         "or other delimiters.\n"
         "\n"
         "Keep in mind that the expansion has an EXPONENTIAL COST with "
-        "respect the maximum output degree and length of the subpaths "
-        "(i.e. O(degree^length)).\n"
+        "respect the maximum output degree and the maximum length of a "
+        "subpath (i.e. O(degree^length)).\n"
         "\n"
         "In practice, the exponential cost is not an issue since the "
         "subpaths are not very long. If you are facing problems with "
@@ -211,6 +227,7 @@ int main(int argc, char **argv) {
     std::string symbols_table_str = "";
     std::string other_groups_str = "";
     bool symbols_table_text = false;
+    bool force_general_algorithm = false;
 
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
@@ -229,6 +246,9 @@ int main(int argc, char **argv) {
     po.Register("symbol-table-text", &symbols_table_text,
                 "If a symbol table is given, it will write the table in text "
                 "mode.");
+    po.Register("force-general-algorithm", &force_general_algorithm,
+                "If true, always uses the general subpath expansion algorithm "
+                "which may be slower than the special one.");
     po.Register("max-length", &max_length,
                 "Maximum length of a subpath.");
     // Register TaskSequencer options.
@@ -248,11 +268,11 @@ int main(int argc, char **argv) {
 
     LabelGroup<Label> label_group;
     // group of word delimiters (no subpath expansion)
-    if (!label_group.ParseStringSingleGroup(po.GetArg(1))) {
+    std::vector<Label> delimiters;
+    if (!label_group.ParseStringSingleGroup(po.GetArg(1), &delimiters)) {
       KALDI_ERR << "Invalid set of non-expandable labels: \""
                 << po.GetArg(1) << "\"";
     }
-    const bool with_word_delimiters = label_group.NumGroups() == 2;
     // others groups to be expanded (e.g. numbers)
     if (!label_group.ParseStringMultipleGroups(other_groups_str)) {
       KALDI_ERR << "Invalid sets of additional label groups: \""
@@ -273,11 +293,11 @@ int main(int argc, char **argv) {
           new ExpandLatticeTask<CompactLattice, CompactLatticeWriter>(
               lattice_reader.Key(),
               lattice_reader.Value(),
+              delimiters,
               label_group,
               acoustic_scale,
               graph_scale,
               beam,
-              with_word_delimiters,
               ExpandSubpathsOptions(max_length, false),
               &lattice_writer,
               symbol_table));
