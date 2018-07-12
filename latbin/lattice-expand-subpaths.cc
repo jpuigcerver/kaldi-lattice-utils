@@ -300,7 +300,8 @@ int main(int argc, char **argv) {
               beam,
               ExpandSubpathsOptions(max_length, false),
               &lattice_writer,
-              symbol_table));
+              symbol_table,
+              force_general_algorithm));
     }
     task_sequencer.Wait();
 
