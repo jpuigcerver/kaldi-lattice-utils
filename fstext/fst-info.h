@@ -45,6 +45,58 @@ int MapGetDefault(const std::map<K, int>& m, const K& k, int v) {
 
 namespace fst {
 
+template <typename FST>
+void ComputeMaxInputOutputDegree(
+    const FST& fst, int* max_input_degree, int* max_output_degree) {
+  typedef typename FST::Arc Arc;
+  typedef typename Arc::StateId StateId;
+
+  if (max_input_degree) { *max_input_degree = 0; }
+  if (max_output_degree) { *max_input_degree = 0; }
+
+  if (fst.Start() == kNoStateId) {
+    return;
+  }
+
+  std::map<StateId, int> MI, MO;
+  std::queue<StateId> Q;
+  Q.emplace(fst.Start());
+  MI[fst.Start()] = 0;
+  MO[fst.Start()] = 0;
+  while (!Q.empty()) {
+    const StateId s = Q.front();
+    Q.pop();
+
+    auto& out_degree = MO[s];
+    for (ArcIterator<FST> ait(fst, s); !ait.Done(); ait.Next()) {
+      const Arc& arc = ait.Value();
+      // Update output degree of s
+      out_degree = out_degree + 1;
+      // Update input degree of arc.nextstate
+      auto it = MI.emplace(arc.nextstate, 0).first;
+      it->second = it->second + 1;
+      // Add arc.nextstate to the queue, if not added before
+      if (MO.find(arc.nextstate) == MO.end()) {
+        MO.emplace_hint(MO.end(), arc.nextstate, 0);
+        Q.push(arc.nextstate);
+      }
+    }
+  }
+
+  if (max_input_degree) {
+    *max_input_degree = 0;
+    for (const auto& kv : MI) {
+      *max_input_degree = std::max(*max_input_degree, kv.second);
+    }
+  }
+  if (max_output_degree) {
+    *max_output_degree = 0;
+    for (const auto& kv : MO) {
+      *max_output_degree = std::max(*max_output_degree, kv.second);
+    }
+  }
+}
+
 template<typename FST>
 long double ComputeNumberOfPaths(FST *fst) {
   typedef typename FST::Arc Arc;
@@ -212,6 +264,8 @@ struct FstSummaryAcc {
 
   int max_path_length;
   int max_subpath_length;
+  int max_input_degree;
+  int max_output_degree;
 
   FstSummaryAcc() :
       num_fsts(0),
@@ -255,7 +309,9 @@ struct FstSummaryAcc {
       sum_sqr_paths(0),
       num_inf_paths(0),
       max_path_length(std::numeric_limits<int>::min()),
-      max_subpath_length(std::numeric_limits<int>::min()) {}
+      max_subpath_length(std::numeric_limits<int>::min()),
+      max_input_degree(0),
+      max_output_degree(0) {}
   friend std::ostream &operator<<(std::ostream &os,
                                   const FstSummaryAcc &summary) {
     const double N = summary.num_fsts;
@@ -286,6 +342,8 @@ struct FstSummaryAcc {
     const double avg_cyclic = N > 0 ? (100.0 * summary.num_cyclic) / N : 0;
     const double avg_icyclic = N > 0 ? (100.0 * summary.num_icyclic) / N : 0;
     const double avg_topsorted = N > 0 ? (100.0 * summary.num_topsorted) / N : 0;
+    const double avg_max_inp_degree = N > 0 ? summary.max_input_degree / N : 0;
+    const double avg_max_out_degree = N > 0 ? summary.max_output_degree / N : 0;
 
     os << std::left;
     os << std::setw(50) << "# FSTs " << summary.num_fsts << std::endl;
@@ -308,6 +366,10 @@ struct FstSummaryAcc {
        << std::endl;
     os << std::setw(50) << "avg. output label multiplicity" << avg_olm
        << std::endl;
+    std::cout << std::setw(50) << "avg. max. input degree"
+                << avg_max_inp_degree << std::endl;
+    std::cout << std::setw(50) << "avg. max. output degree"
+                << avg_max_out_degree << std::endl;
     if (summary.max_path_length >= 0) {
       std::cout << std::setw(50) << "max. path length"
                 << summary.max_path_length << std::endl;
@@ -380,6 +442,11 @@ void UpdateFstSummary(
         fst_info.InputLabelMultiplicity() * fst_info.InputLabelMultiplicity();
     acc->sum_sqr_olm +=
         fst_info.OutputLabelMultiplicity() * fst_info.OutputLabelMultiplicity();
+
+    int max_input_degree = 0, max_output_degree = 0;
+    ComputeMaxInputOutputDegree(f, &max_input_degree, &max_output_degree);
+    acc->max_input_degree += max_input_degree;
+    acc->max_output_degree += max_output_degree;
 
     const long double num_paths = ComputeNumberOfPaths<FST>(&f);
     if (num_paths < std::numeric_limits<long double>::infinity()) {
@@ -470,6 +537,13 @@ void PrintFstInfo(const std::string &rspecifier, const F* func) {
               << fst_info.InputLabelMultiplicity() << std::endl;
     std::cout << std::setw(50) << "output label multiplicity"
               << fst_info.OutputLabelMultiplicity() << std::endl;
+    // Max Input/Output degree
+    int max_input_degree = 0, max_output_degree = 0;
+    ComputeMaxInputOutputDegree(f, &max_input_degree, &max_output_degree);
+    std::cout << std::setw(50) << "max. input degree"
+                << max_input_degree << std::endl;
+    std::cout << std::setw(50) << "max. output degree"
+                << max_output_degree << std::endl;
     // Print info about the max length of all paths
     const int max_path_length = ComputeMaxPathLength<FST>(&f);
     if (max_path_length >= 0) {
