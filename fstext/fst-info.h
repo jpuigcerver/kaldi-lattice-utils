@@ -24,6 +24,25 @@
 #include "fstext/fstext-lib.h"
 #include "fst/script/info-impl.h"
 
+namespace {
+template<typename K>
+void MapSetMax(std::map<K, int>& m, const K& k, int v) {
+  auto it = m.find(k);
+  if (it == m.end()) {
+    m.emplace_hint(it, k, v);
+  } else {
+    it->second = std::max(it->second, v);
+  }
+}
+
+template<typename K>
+int MapGetDefault(const std::map<K, int>& m, const K& k, int v) {
+  auto it = m.find(k);
+  if (it == m.end()) return v;
+  else return it->second;
+}
+}  // namespace
+
 namespace fst {
 
 template<typename FST>
@@ -57,22 +76,23 @@ long double ComputeNumberOfPaths(FST *fst) {
   }
 }
 
-template <typename Arc>
-int ComputeMaxPathLength(Fst<Arc>* fst) {
+template <typename FST>
+int ComputeMaxPathLength(FST* fst) {
+  typedef typename FST::Arc Arc;
   typedef typename Arc::Label Label;
   typedef typename Arc::StateId StateId;
   typedef typename Arc::Weight Weight;
 
   if (fst->Properties(kAcyclic, true) & kAcyclic) {
-    if (fst->Start() == kNoStateId) return -1;
+    if (fst->Start() == kNoStateId) { return -1; }
     TopSort(fst);
 
     std::map<StateId, int> M;
     M[fst->Start()] = 0;
-    for (StateIterator<Fst<Arc>> sit(*fst); !sit.Done(); sit.Next()) {
+    for (StateIterator<FST> sit(*fst); !sit.Done(); sit.Next()) {
       const auto& s = sit.Value();
       const auto& l = M[s];
-      for (ArcIterator<Fst<Arc>> ait(*fst, s); !ait.Done(); ait.Next()) {
+      for (ArcIterator<FST> ait(*fst, s); !ait.Done(); ait.Next()) {
         const auto& arc = ait.Value();
         auto it = M.find(arc.nextstate);
         if (it == M.end()) {
@@ -87,6 +107,58 @@ int ComputeMaxPathLength(Fst<Arc>* fst) {
     for (const auto& kv : M) {
       if (fst->Final(kv.first) != Weight::Zero()) {
         max_length = std::max(max_length, kv.second);
+      }
+    }
+    return max_length;
+  } else {
+    return std::numeric_limits<int>::min();
+  }
+}
+
+template<typename FST, typename F>
+int ComputeMaxSubpathLength(FST* fst, const F& f, bool use_input = true) {
+  typedef typename FST::Arc Arc;
+  typedef typename Arc::Label Label;
+  typedef typename Arc::StateId StateId;
+  typedef typename Arc::Weight Weight;
+  auto c_eps = f(0);
+  typedef decltype(c_eps)  ClassType;
+
+  if (fst->Properties(kAcyclic, true) & kAcyclic) {
+    Connect(fst);
+    TopSort(fst);
+    if (fst->Start() == kNoStateId) { return -1; }
+
+    std::map< StateId, std::map<ClassType, int> > M;
+    M[fst->Start()][c_eps] = 0;
+    for (StateIterator<FST> sit(*fst); !sit.Done(); sit.Next()) {
+      const auto& s = sit.Value();
+      const std::map<ClassType, int>& sm = M.find(s)->second;
+      for (ArcIterator<FST> ait(*fst, s); !ait.Done(); ait.Next()) {
+        const auto& arc = ait.Value();
+        const auto& c_arc = f(use_input ? arc.ilabel : arc.olabel);
+        auto it = M.find(arc.nextstate);
+        if (it == M.end()) {
+          it = M.emplace_hint(it, arc.nextstate, std::map<ClassType, int>());
+        }
+        std::map<ClassType, int>& sm2 = it->second;
+
+        if (c_arc == c_eps) {
+          for (const auto& kv : sm) {
+            MapSetMax(sm2, kv.first, kv.second + 1);
+          }
+        } else {
+          const auto max_prev = std::max(MapGetDefault(sm, c_arc, 0),
+                                         MapGetDefault(sm, c_eps, 0));
+          MapSetMax(sm2, c_arc, max_prev + 1);
+        }
+      }
+    }
+
+    int max_length = 0;
+    for (const auto& kv1 : M) {
+      for (const auto& kv2 : kv1.second) {
+        max_length = std::max(max_length, kv2.second);
       }
     }
     return max_length;
@@ -138,6 +210,9 @@ struct FstSummaryAcc {
   long double sum_sqr_paths;
   uint64_t num_inf_paths;
 
+  int max_path_length;
+  int max_subpath_length;
+
   FstSummaryAcc() :
       num_fsts(0),
       num_expanded(0),
@@ -178,7 +253,9 @@ struct FstSummaryAcc {
       sum_sqr_olm(0),
       num_paths(0),
       sum_sqr_paths(0),
-      num_inf_paths(0) {}
+      num_inf_paths(0),
+      max_path_length(std::numeric_limits<int>::min()),
+      max_subpath_length(std::numeric_limits<int>::min()) {}
   friend std::ostream &operator<<(std::ostream &os,
                                   const FstSummaryAcc &summary) {
     const double N = summary.num_fsts;
@@ -209,6 +286,7 @@ struct FstSummaryAcc {
     const double avg_cyclic = N > 0 ? (100.0 * summary.num_cyclic) / N : 0;
     const double avg_icyclic = N > 0 ? (100.0 * summary.num_icyclic) / N : 0;
     const double avg_topsorted = N > 0 ? (100.0 * summary.num_topsorted) / N : 0;
+
     os << std::left;
     os << std::setw(50) << "# FSTs " << summary.num_fsts << std::endl;
     os << std::setw(50) << "avg. of states" << avg_states << std::endl;
@@ -230,6 +308,20 @@ struct FstSummaryAcc {
        << std::endl;
     os << std::setw(50) << "avg. output label multiplicity" << avg_olm
        << std::endl;
+    if (summary.max_path_length >= 0) {
+      std::cout << std::setw(50) << "max. path length"
+                << summary.max_path_length << std::endl;
+    } else {
+      std::cout << std::setw(50) << "max. path length"
+                << "none" << std::endl;
+    }
+    if (summary.max_path_length >= 0) {
+      std::cout << std::setw(50) << "max. subpath length"
+                << summary.max_subpath_length << std::endl;
+    } else {
+      std::cout << std::setw(50) << "max. subpath length"
+                << "none" << std::endl;
+    }
     os << std::setw(50) << "% expanded" << avg_expanded << std::endl;
     os << std::setw(50) << "% mutable" << avg_mutable << std::endl;
     os << std::setw(50) << "% error" << avg_error << std::endl;
@@ -247,15 +339,17 @@ struct FstSummaryAcc {
   }
 };
 
-template<typename FstReader>
-void UpdateFstSummary(const std::string &rspecifier, FstSummaryAcc *acc) {
+template<typename FstReader, typename F>
+void UpdateFstSummary(
+    const std::string &rspecifier, FstSummaryAcc *acc,
+    const F* func = nullptr) {
   typedef typename FstReader::T FST;
   for (FstReader fst_reader(rspecifier); !fst_reader.Done();
        fst_reader.Next()) {
     FST f = fst_reader.Value();
     fst_reader.FreeCurrent();
     FstInfo fst_info(f, true);
-    const long double num_paths = ComputeNumberOfPaths<FST>(&f);
+
     acc->num_fsts++;
     acc->num_states += fst_info.NumStates();
     acc->num_arcs += fst_info.NumArcs();
@@ -287,12 +381,23 @@ void UpdateFstSummary(const std::string &rspecifier, FstSummaryAcc *acc) {
     acc->sum_sqr_olm +=
         fst_info.OutputLabelMultiplicity() * fst_info.OutputLabelMultiplicity();
 
+    const long double num_paths = ComputeNumberOfPaths<FST>(&f);
     if (num_paths < std::numeric_limits<long double>::infinity()) {
       acc->num_paths += num_paths;
       acc->sum_sqr_paths += num_paths * num_paths;
     } else {
       acc->num_inf_paths++;
     }
+
+    // Print info about the max length of all paths
+    acc->max_path_length = std::max(acc->max_path_length,
+                                    ComputeMaxPathLength<FST>(&f));
+    if (func != nullptr) {
+      acc->max_subpath_length = std::max(
+          acc->max_subpath_length,
+          ComputeMaxSubpathLength<FST, F>(&f, *func));
+    }
+
     if (fst_info.Properties() & fst::kExpanded)
       acc->num_expanded++;
     if (fst_info.Properties() & fst::kMutable)
@@ -320,16 +425,16 @@ void UpdateFstSummary(const std::string &rspecifier, FstSummaryAcc *acc) {
   }
 }
 
-template<typename FstReader>
-void PrintFstInfo(const std::string &rspecifier) {
+template<typename FstReader, typename F>
+void PrintFstInfo(const std::string &rspecifier, const F* func) {
   typedef typename FstReader::T FST;
+  typedef typename FST::Arc Arc;
   for (FstReader fst_reader(rspecifier); !fst_reader.Done();
        fst_reader.Next()) {
     const std::string key = fst_reader.Key();
     FST f = fst_reader.Value();
     fst_reader.FreeCurrent();
     fst::FstInfo fst_info(f, true);
-    const long double num_paths = ComputeNumberOfPaths<FST>(&f);
     std::cout << std::left << key << std::endl;
     std::cout << std::setw(50) << "# of states" << fst_info.NumStates()
               << std::endl;
@@ -353,6 +458,8 @@ void PrintFstInfo(const std::string &rspecifier) {
               << fst_info.NumCc() << std::endl;
     std::cout << std::setw(50) << "# of strongly conn components"
               << fst_info.NumScc() << std::endl;
+    // Print number of paths
+    const long double num_paths = ComputeNumberOfPaths<FST>(&f);
     if (num_paths > std::pow(2, std::numeric_limits<long double>::digits)) {
       std::cout << std::setw(50) << "# of paths" << num_paths << std::endl;
     } else {
@@ -363,6 +470,31 @@ void PrintFstInfo(const std::string &rspecifier) {
               << fst_info.InputLabelMultiplicity() << std::endl;
     std::cout << std::setw(50) << "output label multiplicity"
               << fst_info.OutputLabelMultiplicity() << std::endl;
+    // Print info about the max length of all paths
+    const int max_path_length = ComputeMaxPathLength<FST>(&f);
+    if (max_path_length >= 0) {
+      std::cout << std::setw(50) << "max. path length"
+                << max_path_length << std::endl;
+    } else {
+      // Fst is empty or not acyclic
+      std::cout << std::setw(50) << "max. path length"
+                << "none" << std::endl;
+    }
+    if (func != nullptr) {
+      const int max_subpath_length = ComputeMaxSubpathLength<FST, F>(&f, *func);
+      if (max_subpath_length >= 0) {
+        std::cout << std::setw(50) << "max. subpath length"
+                  << max_subpath_length << std::endl;
+      } else {
+        // Fst is empty or not acyclic
+        std::cout << std::setw(50) << "max. subpath length"
+                  << "none" << std::endl;
+      }
+    } else {
+      std::cout << std::setw(50) << "max. subpath length"
+                << "none" << std::endl;
+    }
+
     uint64 prop = 1;
     for (int i = 0; i < 64; ++i, prop <<= 1) {
       if (prop & fst::kBinaryProperties) {

@@ -23,15 +23,15 @@
 #include "util/common-utils.h"
 #include "lat/kaldi-lattice.h"
 #include "fstext/fst-info.h"
+#include "fstext/label-group.h"
 
 int main(int argc, char *argv[]) {
   try {
     using namespace kaldi;
+    using fst::LabelGroup;
     typedef kaldi::int32 int32;
     typedef kaldi::int64 int64;
-    using fst::SymbolTable;
-    using fst::VectorFst;
-    using fst::StdArc;
+    typedef fst::StdArc::Label Label;
 
     const char *usage =
         "Prints out a summary of the lattices in a set of archives or\n"
@@ -45,6 +45,7 @@ int main(int argc, char *argv[]) {
     bool summary = true;
     std::string include_rxfilename;
     std::string exclude_rxfilename;
+    std::string label_groups_str;
 
     po.Register("compact", &compact,
                 "If true, work with lattices in compact form.");
@@ -58,34 +59,48 @@ int main(int argc, char *argv[]) {
                 "Text file, the first field of each "
                 "line being interpreted as an utterance-id "
                 "whose lattices will be excluded");
+    po.Register("label-groups", &label_groups_str,
+                "Groups of labels to form subpaths. Groups are separated "
+                "with a semicolon, and labels within a group are separated "
+                "by spaces.");
 
     po.Read(argc, argv);
-
     if (po.NumArgs() < 1) {
       po.PrintUsage();
       exit(1);
+    }
+
+    LabelGroup<Label> label_group;
+    if (!label_group.ParseStringMultipleGroups(label_groups_str)) {
+      KALDI_ERR << "Invalid sets of label groups: \""
+                << label_groups_str << "\"";
     }
 
     if (include_rxfilename != "" && exclude_rxfilename != "") {
       KALDI_ERR << "should not have both --exclude and --include option!";
     }
 
+
+    const LabelGroup<Label>* label_group_ptr =
+        label_group.NumGroups() > 1 ? &label_group : nullptr;
     fst::FstSummaryAcc summary_acc;
     for (int32 a = 1; a <= po.NumArgs(); ++a) {
       const std::string lats_rspecifier = po.GetArg(a);
       if (compact) {
         if (summary) {
-          fst::UpdateFstSummary<SequentialCompactLatticeReader>(lats_rspecifier,
-                                                                &summary_acc);
+          fst::UpdateFstSummary<SequentialCompactLatticeReader, LabelGroup<Label>>(
+              lats_rspecifier, &summary_acc, label_group_ptr);
         } else {
-          fst::PrintFstInfo<SequentialCompactLatticeReader>(lats_rspecifier);
+          fst::PrintFstInfo<SequentialCompactLatticeReader, LabelGroup<Label>>(
+              lats_rspecifier, label_group_ptr);
         }
       } else {
         if (summary) {
-          fst::UpdateFstSummary<SequentialLatticeReader>(lats_rspecifier,
-                                                         &summary_acc);
+          fst::UpdateFstSummary<SequentialLatticeReader, LabelGroup<Label>>(
+              lats_rspecifier, &summary_acc, label_group_ptr);
         } else {
-          fst::PrintFstInfo<SequentialLatticeReader>(lats_rspecifier);
+          fst::PrintFstInfo<SequentialLatticeReader, LabelGroup<Label>>(
+              lats_rspecifier, label_group_ptr);
         }
       }
     }

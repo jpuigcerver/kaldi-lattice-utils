@@ -22,6 +22,7 @@
 #include "base/kaldi-common.h"
 #include "util/common-utils.h"
 #include "fstext/fst-info.h"
+#include "fstext/label-group.h"
 
 int main(int argc, char *argv[]) {
   try {
@@ -31,6 +32,8 @@ int main(int argc, char *argv[]) {
     using fst::SymbolTable;
     using fst::VectorFst;
     using fst::StdArc;
+    using fst::LabelGroup;
+    typedef StdArc::Label Label;
 
     const char *usage =
         "Prints out a summary of the FSTs in a set of archives or\n"
@@ -43,6 +46,7 @@ int main(int argc, char *argv[]) {
     bool summary = true;
     std::string include_rxfilename;
     std::string exclude_rxfilename;
+    std::string label_groups_str;
 
     po.Register("summary", &summary,
                 "If true, summarizes the information of all FSTs.");
@@ -54,27 +58,39 @@ int main(int argc, char *argv[]) {
                 "Text file, the first field of each "
                 "line being interpreted as an utterance-id "
                 "whose FST will be excluded");
+    po.Register("label-groups", &label_groups_str,
+                "Groups of labels to form subpaths. Groups are separated "
+                "with a semicolon, and labels within a group are separated "
+                "by spaces.");
 
     po.Read(argc, argv);
-
     if (po.NumArgs() < 1) {
       po.PrintUsage();
       exit(1);
+    }
+
+    LabelGroup<Label> label_group;
+    if (!label_group.ParseStringMultipleGroups(label_groups_str)) {
+      KALDI_ERR << "Invalid sets of label groups: \""
+                << label_groups_str << "\"";
     }
 
     if (include_rxfilename != "" && exclude_rxfilename != "") {
       KALDI_ERR << "should not have both --exclude and --include option!";
     }
 
+    const LabelGroup<Label>* label_group_ptr =
+        label_group.NumGroups() > 1 ? &label_group : nullptr;
     typedef kaldi::SequentialTableReader<fst::VectorFstHolder> SequentialVectorFstReader;
     fst::FstSummaryAcc summary_acc;
     for (int32 a = 1; a <= po.NumArgs(); ++a) {
       const std::string fsts_rspecifier = po.GetArg(a);
       if (summary) {
-        fst::UpdateFstSummary<SequentialVectorFstReader>(fsts_rspecifier,
-                                                         &summary_acc);
+        fst::UpdateFstSummary<SequentialVectorFstReader, LabelGroup<Label>>(
+            fsts_rspecifier, &summary_acc, label_group_ptr);
       } else {
-        fst::PrintFstInfo<SequentialVectorFstReader>(fsts_rspecifier);
+        fst::PrintFstInfo<SequentialVectorFstReader, LabelGroup<Label>>(
+            fsts_rspecifier, label_group_ptr);
       }
     }
     if (summary) {
