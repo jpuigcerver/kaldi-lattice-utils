@@ -57,6 +57,44 @@ long double ComputeNumberOfPaths(FST *fst) {
   }
 }
 
+template <typename Arc>
+int ComputeMaxPathLength(Fst<Arc>* fst) {
+  typedef typename Arc::Label Label;
+  typedef typename Arc::StateId StateId;
+  typedef typename Arc::Weight Weight;
+
+  if (fst->Properties(kAcyclic, true) & kAcyclic) {
+    if (fst->Start() == kNoStateId) return -1;
+    TopSort(fst);
+
+    std::map<StateId, int> M;
+    M[fst->Start()] = 0;
+    for (StateIterator<Fst<Arc>> sit(*fst); !sit.Done(); sit.Next()) {
+      const auto& s = sit.Value();
+      const auto& l = M[s];
+      for (ArcIterator<Fst<Arc>> ait(*fst, s); !ait.Done(); ait.Next()) {
+        const auto& arc = ait.Value();
+        auto it = M.find(arc.nextstate);
+        if (it == M.end()) {
+          M.emplace_hint(it, arc.nextstate, l + 1);
+        } else {
+          it->second = std::max(it->second, l + 1);
+        }
+      }
+    }
+
+    int max_length = 0;
+    for (const auto& kv : M) {
+      if (fst->Final(kv.first) != Weight::Zero()) {
+        max_length = std::max(max_length, kv.second);
+      }
+    }
+    return max_length;
+  } else {
+    return std::numeric_limits<int>::min();
+  }
+}
+
 struct FstSummaryAcc {
   uint64_t num_fsts;
   uint64_t num_expanded;
