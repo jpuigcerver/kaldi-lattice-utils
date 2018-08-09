@@ -61,9 +61,9 @@ void CreateQueryFst(const typename Arc::Label &query_label,
 namespace kaldi {
 
 template<typename Set>
-void FilterSymbols(const std::vector<int32> &symbols,
-                   const Set &exclude_symbols,
-                   std::vector<int32> *filtered_symbols) {
+void ExcludeSymbols(const std::vector<int32> &symbols,
+                    const Set &exclude_symbols,
+                    std::vector<int32> *filtered_symbols) {
   filtered_symbols->reserve(symbols.size());
   for (const auto &s : symbols) {
     if (exclude_symbols.find(s) == exclude_symbols.end()) {
@@ -72,10 +72,24 @@ void FilterSymbols(const std::vector<int32> &symbols,
   }
 }
 
+template<typename Set>
+void IncludeSymbols(const std::vector<int32> &symbols,
+                    const Set &include_symbols,
+                    std::vector<int32> *filtered_symbols) {
+  filtered_symbols->reserve(symbols.size());
+  for (const auto &s : symbols) {
+    if (include_symbols.find(s) != include_symbols.end()) {
+      filtered_symbols->push_back(s);
+    }
+  }
+}
+
 void ProcessLattice(
     const std::string &key, CompactLattice *clat, BaseFloat acoustic_scale,
     BaseFloat graph_scale, BaseFloat insertion_penalty, BaseFloat beam,
-    const std::set<int32> &excluded_word_symbols, double *total_lkh,
+    const std::set<int32> &included_word_symbols,
+    const std::set<int32> &excluded_word_symbols,
+    double *total_lkh,
     std::vector<int32> *all_word_symbols,
     std::vector<int32> *interesting_word_symbols) {
   const int64 narcs = NumArcs(*clat);
@@ -109,8 +123,13 @@ void ProcessLattice(
     *total_lkh = bw_lkh[clat->Start()];
     GetOutputSymbols(*clat, false /* do not include epsilon */,
                      all_word_symbols);
-    FilterSymbols(*all_word_symbols, excluded_word_symbols,
-                  interesting_word_symbols);
+    if (!included_word_symbols.empty()) {
+      IncludeSymbols(*all_word_symbols, included_word_symbols,
+                     interesting_word_symbols);
+    } else {
+      ExcludeSymbols(*all_word_symbols, excluded_word_symbols,
+                     interesting_word_symbols);
+    }
   } else {
     *total_lkh = kLogZeroDouble;
   }
@@ -197,7 +216,7 @@ int main(int argc, char *argv[]) {
     BaseFloat acoustic_scale = 1.0;
     BaseFloat graph_scale = 1.0;
     BaseFloat insertion_penalty = 0.0;
-    std::string exclude_symbols_str = "";
+    std::string exclude_symbols_str, include_symbols_str;
     int32 rho_symbol = std::numeric_limits<int32>::max();
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
@@ -211,6 +230,9 @@ int main(int argc, char *argv[]) {
     po.Register("exclude-words", &exclude_symbols_str,
                 "Space-separated list of integers representing the words to "
                 "exclude from the index.");
+    po.Register("include-words", &include_symbols_str,
+                "Space-separated list of integers representing the words to "
+                "include in the index.");
     po.Register("rho-label", &rho_symbol,
                 "Label that represents all possible word labels, it must not "
                 "be equal to any other label (you shouldn't need to modify this "
@@ -234,6 +256,14 @@ int main(int argc, char *argv[]) {
       kaldi::CopyVectorToSet(tmp, &exclude_symbols);
     }
 
+    // Parse set of word symbols to include in the index
+    set<kaldi::int32> include_symbols;
+    {
+      vector<kaldi::int32> tmp;
+      kaldi::SplitStringToIntegers(include_symbols_str, " ", true, &tmp);
+      kaldi::CopyVectorToSet(tmp, &include_symbols);
+    }
+
     typedef TableWriter<BasicTupleVectorHolder<int32, double>>
         UtteranceScoreWriter;
 
@@ -252,7 +282,7 @@ int main(int argc, char *argv[]) {
       std::vector<int32> all_word_symbols, interesting_word_symbols;
       ProcessLattice(
           lattice_key, clat, acoustic_scale, graph_scale, insertion_penalty,
-          beam, exclude_symbols, &total_lkh, &all_word_symbols,
+          beam, include_symbols, exclude_symbols, &total_lkh, &all_word_symbols,
           &interesting_word_symbols);
       // Schedule tasks to compute the scores of each word symbol.
       std::vector<std::tuple<int32, double>> utterance_scores;

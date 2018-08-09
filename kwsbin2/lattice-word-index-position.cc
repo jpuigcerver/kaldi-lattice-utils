@@ -85,11 +85,14 @@ class LatticeScorerTask {
 
   LatticeScorerTask(
       const std::string &key, const CompactLattice &clat,
+      const std::set<int32> &include_labels,
       const std::set<int32> &exclude_labels,
       BaseFloat acoustic_scale, BaseFloat graph_scale,
       BaseFloat insertion_penalty, BaseFloat beam,
       PositionScoreWriter* posterior_writer) :
-      key_(key), clat_(clat), exclude_labels_(exclude_labels),
+      key_(key), clat_(clat),
+      include_labels_(include_labels),
+      exclude_labels_(exclude_labels),
       acoustic_scale_(acoustic_scale), graph_scale_(graph_scale),
       insertion_penalty_(insertion_penalty), beam_(beam),
       score_writer_(posterior_writer) {}
@@ -144,10 +147,16 @@ class LatticeScorerTask {
            !ait.Done(); ait.Next()) {
         const auto &arc = ait.Value();
         const auto &label = arc.olabel;
-        if (label != 0 && exclude_labels_.count(label) == 0) {
+        const bool valid_label = (
+            label != 0 && (
+                (!include_labels_.empty() && include_labels_.count(label) > 0) ||
+                    exclude_labels_.count(label) == 0
+            )
+        );
+        if (valid_label) {
           // Word position within the sequence (0-based)
           const int32 pos = state_input_len_[sit.Value()];
-          // Likelhood of the arc.
+          // Likelihood of the arc.
           const double arc_lkh = -ConvertToCost(arc.weight);
           // Likelihood of all paths through the arc.
           const double lkh_through_arc =
@@ -183,6 +192,7 @@ class LatticeScorerTask {
  private:
   const std::string key_;
   CompactLattice clat_;
+  const std::set<int32> include_labels_;
   const std::set<int32> exclude_labels_;
   BaseFloat acoustic_scale_, graph_scale_, insertion_penalty_, beam_;
   PositionScoreWriter *score_writer_;
@@ -217,7 +227,7 @@ int main(int argc, char *argv[]) {
     BaseFloat acoustic_scale = 1.0;
     BaseFloat graph_scale = 1.0;
     BaseFloat insertion_penalty = 0.0;
-    std::string exclude_symbols_str = "";
+    std::string exclude_symbols_str, include_symbols_str;
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
     po.Register("graph-scale", &graph_scale,
@@ -230,6 +240,9 @@ int main(int argc, char *argv[]) {
     po.Register("exclude-words", &exclude_symbols_str,
                 "Space-separated list of integers representing the words to "
                 "exclude from the index.");
+    po.Register("include-words", &include_symbols_str,
+                "Space-separated list of integers representing the words to "
+                "include in the index.");
     // Register TaskSequencer options.
     TaskSequencerConfig task_sequencer_config;
     task_sequencer_config.Register(&po);
@@ -248,6 +261,14 @@ int main(int argc, char *argv[]) {
       kaldi::CopyVectorToSet(tmp, &exclude_symbols);
     }
 
+    // Parse set of word symbols to include in the index
+    set<kaldi::int32> include_symbols;
+    {
+      vector<kaldi::int32> tmp;
+      kaldi::SplitStringToIntegers(include_symbols_str, " ", true, &tmp);
+      kaldi::CopyVectorToSet(tmp, &include_symbols);
+    }
+
     const std::string lattice_rspecifier = po.GetArg(1);
     LatticeScorerTask::PositionScoreWriter score_writer(po.GetArg(2));
 
@@ -257,6 +278,7 @@ int main(int argc, char *argv[]) {
       // Schedule task.
       task_sequencer.Run(new LatticeScorerTask(lattice_reader.Key(),
                                                lattice_reader.Value(),
+                                               include_symbols,
                                                exclude_symbols,
                                                acoustic_scale,
                                                graph_scale,
