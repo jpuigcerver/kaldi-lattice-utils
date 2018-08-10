@@ -149,7 +149,7 @@ class LatticeScorerTask {
         const bool valid_label = (
             label != 0 && (
                 (!include_labels_.empty() && include_labels_.count(label) > 0) ||
-                exclude_labels_.count(label) == 0
+                (include_labels_.empty() && exclude_labels_.count(label) == 0)
             )
         );
         if (valid_label) {

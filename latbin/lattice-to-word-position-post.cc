@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
                 "label (typically, equivalent to word insertion penalty).");
     po.Read(argc, argv);
 
-    if (po.NumArgs() != 2 || po.NumArgs() != 3) {
+    if (po.NumArgs() != 2 && po.NumArgs() != 3) {
       po.PrintUsage();
       exit(1);
     }
