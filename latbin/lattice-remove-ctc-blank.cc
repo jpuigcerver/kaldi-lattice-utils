@@ -141,6 +141,7 @@ int main(int argc, char** argv) {
     BaseFloat graph_scale = 1.0;
     BaseFloat beam = std::numeric_limits<BaseFloat>::infinity();
     bool only_best_alignment = false;
+    bool write_compact = true;
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
     po.Register("graph-scale", &graph_scale,
@@ -150,6 +151,8 @@ int main(int argc, char** argv) {
     po.Register("only-best-alignment", &only_best_alignment,
                 "If true, keep only the most likely alignment for each "
                 "sequence of characters.");
+    po.Register("write-compact", &write_compact,
+                "If true, write compact lattices.");
     po.Read(argc, argv);
 
     if (po.NumArgs() != 3) {
@@ -177,7 +180,14 @@ int main(int argc, char** argv) {
 
     if (lattice_in_is_table && lattice_out_is_table) {
       SequentialLatticeReader lattice_reader(lattice_in_str);
-      LatticeWriter lattice_writer(lattice_out_str);
+
+      CompactLatticeWriter *clattice_writer = nullptr;
+      LatticeWriter *lattice_writer = nullptr;
+      if (write_compact) {
+        clattice_writer = new CompactLatticeWriter(lattice_out_str);
+      } else {
+        lattice_writer = new LatticeWriter(lattice_out_str);
+      }
       for (; !lattice_reader.Done(); lattice_reader.Next()) {
         // Read input lattice
         const std::string lattice_key = lattice_reader.Key();
@@ -185,7 +195,21 @@ int main(int argc, char** argv) {
         lattice_reader.FreeCurrent();
         ProcessLattice(lattice_key, &ilat, &olat, blank_symbol, beam,
                        acoustic_scale, graph_scale, only_best_alignment);
-        lattice_writer.Write(lattice_key, olat);
+        if (write_compact) {
+          Lattice tmp;
+          fst::Push<Lattice::Arc, fst::REWEIGHT_TO_INITIAL>(olat, &tmp, fst::kPushLabels);
+          CompactLattice colat;
+          ConvertLattice(tmp, &colat, /*invert=*/true);
+          clattice_writer->Write(lattice_key, colat);
+          KALDI_LOG << olat.NumStates() << " " << colat.NumStates();
+        } else {
+          lattice_writer->Write(lattice_key, olat);
+        }
+      }
+      if (write_compact) {
+        delete clattice_writer;
+      } else {
+        delete lattice_writer;
       }
     } else {
       KALDI_ERR << "Not implemented! Both input and output lattices must be "
