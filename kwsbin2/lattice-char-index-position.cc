@@ -188,6 +188,15 @@ class LatticeScorerTask {
           }
         });
 
+    // We want word-segmentation, instead of the character-level segmentation.
+    // Thus, we need to sum all the hypotheses with the same word-level
+    // segmentation, even if the character-level segmentation is different.
+    // In order to do so, we take advantage of the fact that every path from
+    // The initial state to the final state is a word, thus we will remove
+    // (set to epsilon) the output label of all arcs except those outgoing from
+    // the initial state or entering a final state.
+    fst::SymbolToPathSegmentationFst(&tmp_fst, label_to_segm);
+
     // Determinize in the log semiring to sum weights of all paths of the
     // same (word, position).
     fst::VectorFst<fst::LogArc> det_log;
@@ -200,7 +209,6 @@ class LatticeScorerTask {
             fst::kNoStateId,
             0,
             fst::DETERMINIZE_FUNCTIONAL));
-
     KALDI_VLOG(1) << "Lattice " << key_ << ": "
                   << fst::ComputeNumberOfPaths(&det_log)
                   << " pseudo-words.";
@@ -251,8 +259,8 @@ class LatticeScorerTask {
         KALDI_WARN << "Lattice " << key_ << ": Ignoring eps pseudo-word";
         continue;
       }
-      const auto t0 = std::get<0>(label_to_segm[nb_osyms.front()]);
-      const auto t1 = std::get<1>(label_to_segm[nb_osyms.back()]);
+      const auto t0 = nb_osyms.front() - 1;
+      const auto t1 = nb_osyms.back() - 1;
       const auto prob = total_cost - nb_cost.Value();
       nbest_segment_.emplace_back(pseudoword, position, t0, t1, prob);
     }
