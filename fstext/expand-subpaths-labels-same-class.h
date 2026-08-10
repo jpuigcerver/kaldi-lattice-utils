@@ -16,13 +16,18 @@ namespace fst {
 struct ExpandSubpathsOptions {
   size_t max_subpath_length;
   bool use_input;
+  bool subpath_starts_with_delimiter;
 
   ExpandSubpathsOptions()
       : max_subpath_length(std::numeric_limits<size_t>::max()),
-        use_input(false) {}
+        use_input(false), subpath_starts_with_delimiter(false) {}
 
   ExpandSubpathsOptions(size_t max_length, bool use_input)
       : max_subpath_length(max_length), use_input(use_input) {}
+
+  ExpandSubpathsOptions(size_t max_length, bool use_input, bool starts_with_delim)
+      : max_subpath_length(max_length), use_input(use_input),
+        subpath_starts_with_delimiter(starts_with_delim) {}
 };
 
 namespace {
