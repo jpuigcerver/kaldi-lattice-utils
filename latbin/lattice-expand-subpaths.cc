@@ -200,6 +200,9 @@ int main(int argc, char **argv) {
         "word lattices, by expanding the subpaths between \"whitespaces\" "
         "or other delimiters.\n"
         "\n"
+        "With the \"--delim-is-start\" option, subpaths must begin "
+        "with a delimiter."
+        "\n"
         "Keep in mind that the expansion has an EXPONENTIAL COST with "
         "respect the maximum output degree and the maximum length of a "
         "subpath (i.e. O(degree^length)).\n"
@@ -228,6 +231,7 @@ int main(int argc, char **argv) {
     std::string other_groups_str = "";
     bool symbols_table_text = false;
     bool force_general_algorithm = false;
+    bool delim_is_start = false;
 
     po.Register("acoustic-scale", &acoustic_scale,
                 "Scaling factor for acoustic likelihoods in the lattices.");
@@ -251,6 +255,8 @@ int main(int argc, char **argv) {
                 "which may be slower than the special one.");
     po.Register("max-length", &max_length,
                 "Maximum length of a subpath.");
+    po.Register("delim-is-start", &delim_is_start,
+                "If true, interpret delimiters as where words can start.");
     // Register TaskSequencer options.
     TaskSequencerConfig task_sequencer_config;
     task_sequencer_config.Register(&po);
@@ -298,7 +304,7 @@ int main(int argc, char **argv) {
               acoustic_scale,
               graph_scale,
               beam,
-              ExpandSubpathsOptions(max_length, false),
+              ExpandSubpathsOptions(max_length, false, delim_is_start),
               &lattice_writer,
               symbol_table,
               force_general_algorithm));

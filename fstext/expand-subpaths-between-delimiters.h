@@ -116,7 +116,12 @@ void ExpandSubpathsBetweenDelimitersSpecial(
 
   // Add start state to the stack, new words start from these states.
   std::unordered_set<StateId> add_to_initial_stack;
-  add_to_initial_stack.insert(ifst.Start());
+  if (! opts.subpath_starts_with_delimiter) {
+      add_to_initial_stack.insert(ifst.Start());
+  }
+
+  // Initialize stack
+  std::stack< std::tuple<StateId, StateId, Path<Label, Weight>> > S;
 
   // Traverse all arcs from the fst to detect where new words may start.
   // We will add these states to the stack, and keep the arcs with any of the
@@ -129,7 +134,7 @@ void ExpandSubpathsBetweenDelimitersSpecial(
       const Arc &arc = ait.Value();
       const Label &label = opts.use_input ? arc.ilabel : arc.olabel;
       // State arc.nextstate is the start of a new word
-      if (delimiters.count(label) != 0) {
+      if ((opts.subpath_starts_with_delimiter && (s == ifst.Start())) || (delimiters.count(label) != 0)) {
         // Get ilabel and olabel corresponding to this arc in the output fst
         std::vector<Label> ilabels, olabels;
         if (arc.ilabel != 0) ilabels.push_back(arc.ilabel);
@@ -138,15 +143,21 @@ void ExpandSubpathsBetweenDelimitersSpecial(
         const auto olabel = GetOrAddLabelVectorToSymbolTable(olabels, osyms);
         // Add arc to the output fst and add it to the stack
         ofst->AddArc(s, Arc(ilabel, olabel, arc.weight, arc.nextstate));
-        add_to_initial_stack.insert(arc.nextstate);
+        if (opts.subpath_starts_with_delimiter) {
+            const auto init_p =
+                Path<Label, Weight>(arc.weight, arc.ilabel, arc.olabel);
+            S.emplace(s, arc.nextstate, init_p);
+        } else {
+            add_to_initial_stack.insert(arc.nextstate);
+        }
       }
     }
   }
 
-  // Initialize stack
-  std::stack< std::tuple<StateId, StateId, Path<Label, Weight>> > S;
-  for (StateId s : add_to_initial_stack) {
-    S.emplace(s, s, Path<Label, Weight>());
+  if (! opts.subpath_starts_with_delimiter) {
+      for (StateId s : add_to_initial_stack) {
+          S.emplace(s, s, Path<Label, Weight>());
+      }
   }
 
   while (!S.empty()) {
@@ -197,8 +208,9 @@ void ExpandSubpathsBetweenDelimiters(
     const ExpandSubpathsOptions &opts = ExpandSubpathsOptions()) {
   typedef typename Arc::Label Label;
 
-  if (CanUseExpandSubpathsBetweenDelimitersSpecial(
-      delimiters, ifst, opts.use_input)) {
+  if (opts.subpath_starts_with_delimiter ||
+      CanUseExpandSubpathsBetweenDelimitersSpecial(
+          delimiters, ifst, opts.use_input)) {
     KALDI_VLOG(4) << "Using special subpath expansion between delimiters...";
     ExpandSubpathsBetweenDelimitersSpecial(delimiters, ifst, ofst, opts);
   } else {
